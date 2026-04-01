@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>مشروع بارع بجمعية الراحين</title>
+
+  <!-- الخطوط -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+  <!-- الأنماط -->
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- شاشة التحميل -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <div class="loading-text">جارٍ تحميل البيانات...</div>
+  </div>
+
+  <!-- الشريط العلوي -->
+  <header class="header">
+    <div class="header-logo">
+      <div class="logo-badge">
+        <img src="logo.svg" alt="شعار بارع" class="logo-img">
+      </div>
+      <div class="header-title">
+        <h1>مشروع بارع بجمعية الراحين</h1>
+        <p>منصة متابعة إنجاز البطاقات وجودة التنفيذ</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <select id="semester-filter">
+        <option value="">جميع الفصول</option>
+      </select>
+      <button class="btn-refresh" onclick="app.refresh()">
+        <span class="refresh-icon">🔄</span>
+        تحديث
+      </button>
+      <span id="last-update" class="last-update"></span>
+    </div>
+  </header>
+
+  <!-- شريط التنقل -->
+  <nav class="nav-tabs">
+    <div class="nav-tab active" data-view="overview">
+      <span>📊</span> النظرة العامة
+    </div>
+    <div class="nav-tab" data-view="stages">
+      <span>🏫</span> المراحل
+    </div>
+    <div class="nav-tab" data-view="teams">
+      <span>👥</span> الفرق
+    </div>
+    <div class="nav-tab" data-view="quality">
+      <span>⭐</span> الجودة
+    </div>
+  </nav>
+
+  <!-- المحتوى الرئيسي -->
+  <main class="main-content">
+    <!-- النظرة العامة -->
+    <div id="view-overview" class="view active"></div>
+
+    <!-- المراحل -->
+    <div id="view-stages" class="view"></div>
+
+    <!-- الفرق -->
+    <div id="view-teams" class="view"></div>
+
+    <!-- الجودة -->
+    <div id="view-quality" class="view"></div>
+
+    <!-- تفاصيل الفريق -->
+    <div id="view-team-detail" class="view"></div>
+  </main>
+
+  <!-- إشعار -->
+  <div id="toast" class="toast"></div>
+
+  <!-- السكربتات -->
+  <script src="config.js"></script>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
