@@ -6,15 +6,31 @@ class App {
   constructor() {
     this.engine = new DataEngine();
     this.currentView = 'overview';
-    this.currentSemester = '';
+    this.currentSemesters = new Set(); // فارغة = جميع الفصول
+    this.dateFrom = null;
+    this.dateTo = null;
+    this.teamSearch = '';
     this.charts = {};
+    this._closeFilterHandler = null;
+  }
+
+  /** كائن الفلتر الحالي لتمريره إلى محرك البيانات */
+  getCurrentFilter() {
+    return {
+      semesters: [...this.currentSemesters],
+      dateFrom:  this.dateFrom,
+      dateTo:    this.dateTo,
+    };
   }
 
   async init() {
     this.showLoading(true);
     try {
       await this.engine.fetchAll();
-      this.populateSemesterFilter();
+      // افتح على الفصل الدراسي الحالي تلقائياً
+      const curSem = this.engine.getCurrentSemesterId();
+      if (curSem) this.currentSemesters = new Set([curSem]);
+      this.buildFilterUI();
       this.renderCurrentView();
       this.setupAutoRefresh();
       this.updateLastFetchTime();
@@ -66,7 +82,7 @@ class App {
 
   // ==================== النظرة العامة ====================
   renderOverview() {
-    const stats = this.engine.getOverallStats(this.currentSemester);
+    const stats = this.engine.getOverallStats(this.getCurrentFilter());
     const container = document.getElementById('view-overview');
 
     const qualLevel = stats.qualityLevel || { label: '-', color: '#999', icon: '⚪' };
@@ -171,7 +187,7 @@ class App {
     `;
 
     // الفرق التي لم تنفذ
-    const nonExec = this.engine.getNonExecutingTeams(this.currentSemester);
+    const nonExec = this.engine.getNonExecutingTeams(this.getCurrentFilter());
     if (Object.keys(nonExec).length > 0) {
       html += `
         <div class="data-table-wrapper">
@@ -268,7 +284,7 @@ class App {
   renderStages() {
     const container = document.getElementById('view-stages');
     const selectedStage = this.viewParams?.stage || Object.keys(CONFIG.stages)[0];
-    const stats = this.engine.getOverallStats(this.currentSemester);
+    const stats = this.engine.getOverallStats(this.getCurrentFilter());
 
     let tabsHtml = '<div class="sub-tabs">';
     for (const [name, conf] of Object.entries(CONFIG.stages)) {
@@ -410,17 +426,34 @@ class App {
   }
 
   // ==================== عرض الفرق ====================
+  searchTeams(query) {
+    this.teamSearch = query;
+    this.renderTeams();
+  }
+
   renderTeams() {
     const container = document.getElementById('view-teams');
-    const stats = this.engine.getOverallStats(this.currentSemester);
+    const stats = this.engine.getOverallStats(this.getCurrentFilter());
+    const search = this.teamSearch.trim();
 
-    let html = '<div class="cards-grid">';
+    let html = `
+      <div class="search-row">
+        <input type="text" class="team-search-input" placeholder="ابحث عن فريق..."
+          value="${search.replace(/"/g, '&quot;')}"
+          oninput="app.searchTeams(this.value)">
+      </div>
+      <div class="cards-grid">
+    `;
 
     for (const [stageName, stageConf] of Object.entries(CONFIG.stages)) {
       const s = stats.stageStats[stageName];
       if (!s) continue;
 
-      s.teams.sort((a, b) => b.completionRate - a.completionRate).forEach(team => {
+      const filtered = s.teams
+        .filter(t => !search || t.name.includes(search))
+        .sort((a, b) => b.completionRate - a.completionRate);
+
+      filtered.forEach(team => {
         const qualLvl = team.qualityLevel;
         html += `
           <div class="info-card" onclick="app.showTeamDetail('${team.name}')">
@@ -468,7 +501,7 @@ class App {
   // ==================== عرض الجودة ====================
   renderQuality() {
     const container = document.getElementById('view-quality');
-    const stats = this.engine.getOverallStats(this.currentSemester);
+    const stats = this.engine.getOverallStats(this.getCurrentFilter());
 
     let html = '';
 
@@ -535,7 +568,7 @@ class App {
     `;
 
     // جدول تفصيلي للزيارات
-    const qualRows = this.engine.filterQuality({ semester: this.currentSemester });
+    const qualRows = this.engine.filterQuality({ filter: this.getCurrentFilter() });
     if (qualRows.length > 0) {
       const qcol = CONFIG.qualityColumns;
       html += `
@@ -669,7 +702,7 @@ class App {
     if (!teamName) return;
 
     const container = document.getElementById('view-team-detail');
-    const details = this.engine.getTeamDetails(teamName, this.currentSemester);
+    const details = this.engine.getTeamDetails(teamName, this.getCurrentFilter());
     const stageConf = CONFIG.stages[details.stage] || {};
 
     let html = `
@@ -866,21 +899,149 @@ class App {
     document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
   }
 
-  // ==================== أدوات مساعدة ====================
-  populateSemesterFilter() {
-    const select = document.getElementById('semester-filter');
-    if (!select) return;
+  // ==================== واجهة الفلتر ====================
 
-    select.innerHTML = '<option value="">جميع الفصول</option>';
-    CONFIG.semesters.forEach(s => {
-      select.innerHTML += `<option value="${s.id}">${s.label}</option>`;
+  /** بناء خانات اختيار الفصول في لوحة الفلتر */
+  buildFilterUI() {
+    const checks = document.getElementById('semester-checks');
+    if (!checks) return;
+    checks.innerHTML = '';
+    CONFIG.semesters.forEach(sem => {
+      const label = document.createElement('label');
+      label.className = 'fp-check-item';
+      label.innerHTML = `
+        <input type="checkbox" value="${sem.id}"
+          ${this.currentSemesters.has(sem.id) ? 'checked' : ''}
+          onchange="app.toggleSemester('${sem.id}', this.checked)">
+        <span>${sem.label}</span>
+      `;
+      checks.appendChild(label);
     });
-
-    select.addEventListener('change', () => {
-      this.currentSemester = select.value;
-      this.renderCurrentView();
-    });
+    this.updateFilterBadge();
   }
+
+  /** فتح/إغلاق لوحة الفلتر */
+  toggleFilter() {
+    const panel = document.getElementById('filter-panel');
+    if (!panel) return;
+    const isOpen = !panel.classList.contains('hidden');
+    if (isOpen) {
+      panel.classList.add('hidden');
+      if (this._closeFilterHandler) {
+        document.removeEventListener('click', this._closeFilterHandler);
+        this._closeFilterHandler = null;
+      }
+    } else {
+      this.syncFilterUI();
+      panel.classList.remove('hidden');
+      setTimeout(() => {
+        this._closeFilterHandler = (e) => {
+          const btn = document.getElementById('btn-filter');
+          if (!panel.contains(e.target) && !btn?.contains(e.target)) {
+            panel.classList.add('hidden');
+            document.removeEventListener('click', this._closeFilterHandler);
+            this._closeFilterHandler = null;
+          }
+        };
+        document.addEventListener('click', this._closeFilterHandler);
+      }, 0);
+    }
+  }
+
+  /** مزامنة حالة واجهة الفلتر مع الحالة الداخلية */
+  syncFilterUI() {
+    CONFIG.semesters.forEach(sem => {
+      const cb = document.querySelector(`#semester-checks input[value="${sem.id}"]`);
+      if (cb) cb.checked = this.currentSemesters.has(sem.id);
+    });
+    const useDates = !!(this.dateFrom || this.dateTo);
+    const useDateCb = document.getElementById('use-date-range');
+    const dateInputs = document.getElementById('date-range-inputs');
+    if (useDateCb) useDateCb.checked = useDates;
+    if (dateInputs) dateInputs.classList.toggle('hidden', !useDates);
+    const fmtDate = d => d ? d.toISOString().split('T')[0] : '';
+    const fromEl = document.getElementById('date-from');
+    const toEl   = document.getElementById('date-to');
+    if (fromEl) fromEl.value = fmtDate(this.dateFrom);
+    if (toEl)   toEl.value   = fmtDate(this.dateTo);
+  }
+
+  /** تفعيل/إلغاء فصل دراسي واحد */
+  toggleSemester(semId, checked) {
+    if (checked) this.currentSemesters.add(semId);
+    else         this.currentSemesters.delete(semId);
+  }
+
+  /** اختيار الفصل الحالي فقط */
+  selectCurrentSemester() {
+    const cur = this.engine.getCurrentSemesterId();
+    this.currentSemesters = cur ? new Set([cur]) : new Set();
+    this.syncFilterUI();
+  }
+
+  /** إلغاء تحديد جميع الفصول (= عرض الكل) */
+  clearSemesters() {
+    this.currentSemesters = new Set();
+    this.syncFilterUI();
+  }
+
+  /** إظهار/إخفاء حقول النطاق الزمني */
+  toggleDateRange(checked) {
+    const dateInputs = document.getElementById('date-range-inputs');
+    if (dateInputs) dateInputs.classList.toggle('hidden', !checked);
+    if (!checked) { this.dateFrom = null; this.dateTo = null; }
+  }
+
+  /** تطبيق الفلتر */
+  applyFilter() {
+    // اقرأ الخانات
+    const checks = document.querySelectorAll('#semester-checks input[type=checkbox]');
+    this.currentSemesters = new Set();
+    checks.forEach(cb => { if (cb.checked) this.currentSemesters.add(cb.value); });
+
+    // النطاق الزمني
+    const useDates = document.getElementById('use-date-range')?.checked;
+    if (useDates) {
+      const fromVal = document.getElementById('date-from')?.value;
+      const toVal   = document.getElementById('date-to')?.value;
+      this.dateFrom = fromVal ? new Date(fromVal) : null;
+      this.dateTo   = toVal   ? new Date(toVal)   : null;
+    } else {
+      this.dateFrom = null;
+      this.dateTo   = null;
+    }
+
+    this.updateFilterBadge();
+    document.getElementById('filter-panel')?.classList.add('hidden');
+    this.renderCurrentView();
+  }
+
+  /** إعادة تعيين الفلتر إلى الفصل الحالي */
+  resetFilter() {
+    const cur = this.engine.getCurrentSemesterId();
+    this.currentSemesters = cur ? new Set([cur]) : new Set();
+    this.dateFrom = null;
+    this.dateTo   = null;
+    this.syncFilterUI();
+    this.updateFilterBadge();
+    document.getElementById('filter-panel')?.classList.add('hidden');
+    this.renderCurrentView();
+  }
+
+  /** تحديث شارة عداد الفلاتر النشطة */
+  updateFilterBadge() {
+    const badge = document.getElementById('filter-badge');
+    if (!badge) return;
+    const count = this.currentSemesters.size + (this.dateFrom || this.dateTo ? 1 : 0);
+    if (count > 0) {
+      badge.textContent = count;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  // ==================== أدوات مساعدة ====================
 
   async refresh() {
     const btn = document.querySelector('.btn-refresh');

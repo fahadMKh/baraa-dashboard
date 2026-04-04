@@ -35,11 +35,53 @@
       </div>
     </div>
     <div class="header-actions">
-      <select id="semester-filter">
-        <option value="">جميع الفصول</option>
-      </select>
+      <!-- زر الفلتر + لوحته -->
+      <div class="filter-wrapper">
+        <button class="btn-filter" id="btn-filter" onclick="app.toggleFilter()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="6" x2="20" y2="6"/><line x1="8" y1="12" x2="16" y2="12"/><line x1="11" y1="18" x2="13" y2="18"/></svg>
+          تصفية
+          <span id="filter-badge" class="filter-badge hidden"></span>
+        </button>
+
+        <div id="filter-panel" class="filter-panel hidden">
+          <!-- الفصول -->
+          <div class="fp-section">
+            <div class="fp-title">الفصل الدراسي</div>
+            <div class="fp-shortcuts">
+              <button class="fp-shortcut" onclick="app.selectCurrentSemester()">الفصل الحالي</button>
+              <button class="fp-shortcut" onclick="app.clearSemesters()">جميع الفصول</button>
+            </div>
+            <div id="semester-checks" class="fp-checks"></div>
+          </div>
+
+          <!-- النطاق الزمني -->
+          <div class="fp-section">
+            <label class="fp-toggle-row">
+              <input type="checkbox" id="use-date-range" onchange="app.toggleDateRange(this.checked)">
+              <span>نطاق زمني مخصص</span>
+            </label>
+            <div id="date-range-inputs" class="fp-dates hidden">
+              <label class="fp-date-row">
+                <span>من</span>
+                <input type="date" id="date-from">
+              </label>
+              <label class="fp-date-row">
+                <span>إلى</span>
+                <input type="date" id="date-to">
+              </label>
+            </div>
+          </div>
+
+          <!-- أزرار الإجراءات -->
+          <div class="fp-actions">
+            <button class="fp-apply" onclick="app.applyFilter()">تطبيق</button>
+            <button class="fp-reset"  onclick="app.resetFilter()">إعادة تعيين</button>
+          </div>
+        </div>
+      </div>
+
       <button class="btn-refresh" onclick="app.refresh()">
-        <span class="refresh-icon">🔄</span>
+        <span class="refresh-icon">↺</span>
         تحديث
       </button>
       <span id="last-update" class="last-update"></span>
