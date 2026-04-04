@@ -959,7 +959,13 @@ class App {
     const dateInputs = document.getElementById('date-range-inputs');
     if (useDateCb) useDateCb.checked = useDates;
     if (dateInputs) dateInputs.classList.toggle('hidden', !useDates);
-    const fmtDate = d => d ? d.toISOString().split('T')[0] : '';
+    const fmtDate = d => {
+      if (!d) return '';
+      const y  = d.getFullYear();
+      const m  = String(d.getMonth() + 1).padStart(2, '0');
+      const dy = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${dy}`;
+    };
     const fromEl = document.getElementById('date-from');
     const toEl   = document.getElementById('date-to');
     if (fromEl) fromEl.value = fmtDate(this.dateFrom);
@@ -1004,8 +1010,8 @@ class App {
     if (useDates) {
       const fromVal = document.getElementById('date-from')?.value;
       const toVal   = document.getElementById('date-to')?.value;
-      this.dateFrom = fromVal ? new Date(fromVal) : null;
-      this.dateTo   = toVal   ? new Date(toVal)   : null;
+      this.dateFrom = fromVal ? this._localDate(fromVal) : null;
+      this.dateTo   = toVal   ? this._localDate(toVal)   : null;
     } else {
       this.dateFrom = null;
       this.dateTo   = null;
@@ -1086,6 +1092,12 @@ class App {
     toast.textContent = message;
     toast.classList.add('show');
     setTimeout(() => toast.classList.remove('show'), 3000);
+  }
+
+  /** تحويل قيمة input[type=date] "YYYY-MM-DD" إلى Date بالتوقيت المحلي (لا UTC) */
+  _localDate(val) {
+    const [y, m, d] = val.split('-').map(Number);
+    return new Date(y, m - 1, d);
   }
 
   destroyChart(id) {
