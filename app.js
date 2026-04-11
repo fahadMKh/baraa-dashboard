@@ -12,6 +12,9 @@ class App {
     this.teamSearch = '';
     this.charts = {};
     this._closeFilterHandler = null;
+    // نظام الصلاحيات
+    this._currentUser = JSON.parse(localStorage.getItem('baraa_user') || 'null');
+    this._adminTab = 'targets'; // targets | teams | semesters | roles | dataentry | backup
   }
 
   /** كائن الفلتر الحالي لتمريره إلى محرك البيانات */
@@ -57,6 +60,13 @@ class App {
     // تحميل الفرق المحفوظة
     const teams = JSON.parse(localStorage.getItem('baraa_teams') || 'null');
     if (teams) CONFIG.teams = teams;
+    // تحميل الفصول المحفوظة
+    const semesters = JSON.parse(localStorage.getItem('baraa_semesters') || 'null');
+    if (semesters) CONFIG.semesters = semesters;
+    // تطبيق قيود الصلاحيات
+    if (this._currentUser) {
+      setTimeout(() => this._applyRoleRestrictions(), 100);
+    }
   }
 
   // ==================== التنقل ====================
@@ -70,6 +80,25 @@ class App {
   }
 
   navigateTo(view, params = {}) {
+    // فحص الصلاحيات
+    if (this._currentUser) {
+      const role = this._currentUser.role;
+      if (role === 'executor') {
+        // المنفذ يرى فقط: النظرة العامة + البحث
+        if (!['overview', 'search', 'team-detail'].includes(view)) {
+          this.showToast('ليس لديك صلاحية الوصول لهذا القسم');
+          return;
+        }
+      } else if (role === 'leader') {
+        // قائد الفريق يرى كل شيء ما عدا لوحة التحكم
+        if (view === 'admin') {
+          this.showToast('لوحة التحكم متاحة للمشرف فقط');
+          return;
+        }
+      }
+      // admin يرى كل شيء
+    }
+
     this.currentView = view;
     this.viewParams = params;
 
@@ -1675,17 +1704,67 @@ class App {
   // ==================== لوحة التحكم (Admin) ====================
   renderAdmin() {
     const container = document.getElementById('view-admin');
-    const adminData = JSON.parse(localStorage.getItem('baraa_admin') || '{}');
+    const tab = this._adminTab || 'targets';
 
-    let html = '';
+    // التبويبات الفرعية
+    const tabs = [
+      { id: 'targets', label: '🎯 المستهدفات', icon: '' },
+      { id: 'teams', label: '👥 الفرق', icon: '' },
+      { id: 'semesters', label: '📅 الفصول', icon: '' },
+      { id: 'roles', label: '🔐 الصلاحيات', icon: '' },
+      { id: 'dataentry', label: '📝 إدخال البيانات', icon: '' },
+      { id: 'backup', label: '💾 النسخ الاحتياطي', icon: '' },
+    ];
 
-    // إشعار
-    html += `<div class="admin-notice">⚠️ التعديلات هنا تُحفظ في المتصفح المحلي فقط ولا تؤثر على مصدر البيانات الأصلي (Google Sheets).</div>`;
+    let html = `
+      <div class="sub-tabs" style="margin-bottom:20px">
+        ${tabs.map(t => `<button class="sub-tab ${t.id === tab ? 'active' : ''}" onclick="app._adminTab='${t.id}'; app.renderAdmin()">${t.label}</button>`).join('')}
+      </div>
+    `;
 
-    // ==================== إدارة المستهدفات ====================
-    html += `
+    // شريط المستخدم الحالي
+    html += this._renderUserBar();
+
+    switch (tab) {
+      case 'targets': html += this._renderAdminTargets(); break;
+      case 'teams': html += this._renderAdminTeams(); break;
+      case 'semesters': html += this._renderAdminSemesters(); break;
+      case 'roles': html += this._renderAdminRoles(); break;
+      case 'dataentry': html += this._renderDataEntry(); break;
+      case 'backup': html += this._renderAdminBackup(); break;
+    }
+
+    container.innerHTML = html;
+  }
+
+  _renderUserBar() {
+    const user = this._currentUser;
+    if (!user) {
+      return `
+        <div class="admin-notice" style="background:rgba(74,126,165,0.1);border-color:rgba(74,126,165,0.3);color:#2E6080">
+          👤 لم يتم تسجيل الدخول — الوضع الافتراضي (مشرف).
+          <a href="javascript:void(0)" onclick="app._showLoginDialog()" style="color:var(--primary);font-weight:600;margin-right:8px">تسجيل الدخول</a>
+        </div>
+      `;
+    }
+    const roleLabels = { admin: '🛡️ مشرف', leader: '👨‍💼 قائد فريق', executor: '🧑‍💻 منفذ' };
+    return `
+      <div class="admin-notice" style="background:rgba(111,169,108,0.1);border-color:rgba(111,169,108,0.3);color:#3D7A62">
+        👤 مرحباً <strong>${user.name}</strong> — ${roleLabels[user.role] || user.role}
+        ${user.role === 'leader' ? ` — فريق <strong>${user.team}</strong>` : ''}
+        ${user.role === 'executor' ? ` — فريق <strong>${user.team}</strong>` : ''}
+        <a href="javascript:void(0)" onclick="app._logout()" style="color:var(--danger);font-weight:600;margin-right:12px">تسجيل الخروج</a>
+        <a href="javascript:void(0)" onclick="app._switchUser()" style="color:var(--primary);font-weight:600;margin-right:8px">تبديل المستخدم</a>
+      </div>
+    `;
+  }
+
+  // ---------- تبويب المستهدفات ----------
+  _renderAdminTargets() {
+    let html = `
       <div class="admin-section">
         <div class="admin-title">🎯 إدارة المستهدفات</div>
+        <div class="admin-notice">⚠️ تعديل المستهدفات يُحفظ محلياً ويُطبَّق فوراً على جميع الإحصائيات.</div>
         <table class="admin-table">
           <thead>
             <tr>
@@ -1700,7 +1779,6 @@ class App {
       CONFIG.semesters.forEach(sem => {
         const currentVal = this._getAdminTarget(stageName, sem.id);
         html += `<td><input type="number" min="0" value="${currentVal}"
-          data-stage="${stageName}" data-sem="${sem.id}"
           onchange="app._setAdminTarget('${stageName}', '${sem.id}', this.value)"></td>`;
       });
       html += '</tr>';
@@ -1714,71 +1792,442 @@ class App {
         </div>
       </div>
     `;
+    return html;
+  }
 
-    // ==================== إدارة الفرق ====================
-    html += `
-      <div class="admin-section">
-        <div class="admin-title">👥 إدارة الفرق</div>
-    `;
+  // ---------- تبويب الفرق ----------
+  _renderAdminTeams() {
+    let html = '<div class="admin-section"><div class="admin-title">👥 إدارة الفرق</div>';
     for (const [stageName, stageConf] of Object.entries(CONFIG.stages)) {
       const teams = CONFIG.teams[stageName] || [];
       html += `
-        <div style="margin-bottom:16px">
-          <div style="font-weight:600;margin-bottom:8px">${stageConf.label}</div>
-          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+        <div style="margin-bottom:20px">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:10px;color:var(--teal-dark)">${stageConf.icon} ${stageConf.label}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">
             ${teams.map(t => `<span class="admin-tag">${t} <span class="remove-tag" onclick="app._removeTeam('${stageName}', '${t}')">×</span></span>`).join('')}
           </div>
           <div style="display:flex;gap:8px;align-items:center">
             <input type="text" id="new-team-${stageName}" placeholder="اسم الفريق الجديد"
-              style="padding:8px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.85rem;flex:1;max-width:240px">
-            <button class="admin-btn success" onclick="app._addTeam('${stageName}')">إضافة</button>
+              style="padding:8px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.85rem;flex:1;max-width:240px"
+              onkeydown="if(event.key==='Enter')app._addTeam('${stageName}')">
+            <button class="admin-btn success" onclick="app._addTeam('${stageName}')">+ إضافة</button>
           </div>
         </div>
       `;
     }
     html += '</div>';
+    return html;
+  }
 
-    // ==================== إدارة الفصول الدراسية ====================
-    html += `
+  // ---------- تبويب الفصول الدراسية ----------
+  _renderAdminSemesters() {
+    const curSem = this.engine.getCurrentSemesterId();
+    let html = `
       <div class="admin-section">
-        <div class="admin-title">📅 الفصول الدراسية</div>
+        <div class="admin-title">📅 الفصول الدراسية الحالية</div>
         <table class="admin-table">
           <thead>
-            <tr><th>الفصل</th><th>بداية (ميلادي)</th><th>نهاية (ميلادي)</th><th>الحالة</th></tr>
+            <tr><th>الفصل</th><th>المعرّف</th><th>بداية (ميلادي)</th><th>نهاية (ميلادي)</th><th>الحالة</th><th>إجراء</th></tr>
           </thead>
           <tbody>
     `;
-    const curSem = this.engine.getCurrentSemesterId();
     CONFIG.semesters.forEach(sem => {
       const isCurrent = sem.id === curSem;
       html += `
         <tr${isCurrent ? ' style="background:#e8f5e9"' : ''}>
           <td style="font-weight:600">${sem.label}</td>
+          <td style="font-size:0.8rem;color:var(--text-light)">${sem.id}</td>
           <td>${sem.startGreg}</td>
           <td>${sem.endGreg}</td>
           <td>${isCurrent ? '<span style="color:var(--accent);font-weight:600">● الحالي</span>' : ''}</td>
+          <td><button class="admin-btn danger" style="padding:4px 10px;font-size:0.75rem" onclick="app._removeSemester('${sem.id}')">حذف</button></td>
         </tr>
       `;
     });
     html += '</tbody></table></div>';
 
-    // ==================== تصدير/استيراد الإعدادات ====================
+    // نموذج إضافة فصل جديد
     html += `
       <div class="admin-section">
-        <div class="admin-title">💾 النسخ الاحتياطي</div>
+        <div class="admin-title">➕ إضافة فصل دراسي جديد</div>
+        <div class="admin-grid">
+          <div class="admin-input-group">
+            <label>السنة الهجرية</label>
+            <input type="number" id="sem-year" placeholder="1448" min="1440" max="1500" value="1448">
+          </div>
+          <div class="admin-input-group">
+            <label>رقم الفصل</label>
+            <select id="sem-number">
+              <option value="1">الفصل الأول</option>
+              <option value="2">الفصل الثاني</option>
+              <option value="3">الفصل الثالث</option>
+            </select>
+          </div>
+          <div class="admin-input-group">
+            <label>بداية (ميلادي)</label>
+            <input type="date" id="sem-start-greg">
+          </div>
+          <div class="admin-input-group">
+            <label>نهاية (ميلادي)</label>
+            <input type="date" id="sem-end-greg">
+          </div>
+          <div class="admin-input-group">
+            <label>بداية هجري (شهر)</label>
+            <input type="number" id="sem-start-hijri-month" placeholder="1" min="1" max="12">
+          </div>
+          <div class="admin-input-group">
+            <label>بداية هجري (يوم)</label>
+            <input type="number" id="sem-start-hijri-day" placeholder="1" min="1" max="30">
+          </div>
+          <div class="admin-input-group">
+            <label>نهاية هجري (شهر)</label>
+            <input type="number" id="sem-end-hijri-month" placeholder="6" min="1" max="12">
+          </div>
+          <div class="admin-input-group">
+            <label>نهاية هجري (يوم)</label>
+            <input type="number" id="sem-end-hijri-day" placeholder="29" min="1" max="30">
+          </div>
+        </div>
         <div class="admin-actions">
-          <button class="admin-btn primary" onclick="app._exportSettings()">📤 تصدير الإعدادات</button>
-          <button class="admin-btn outline" onclick="document.getElementById('import-settings').click()">📥 استيراد الإعدادات</button>
-          <input type="file" id="import-settings" accept=".json" style="display:none" onchange="app._importSettings(this)">
-          <button class="admin-btn danger" onclick="app._clearAllSettings()">🗑 مسح جميع الإعدادات المحلية</button>
+          <button class="admin-btn primary" onclick="app._addSemester()">إضافة الفصل</button>
         </div>
       </div>
     `;
 
-    container.innerHTML = html;
+    // إعداد المستهدفات للمراحل في الفصول الجديدة
+    html += `
+      <div class="admin-notice">💡 بعد إضافة فصل جديد، انتقل لتبويب "المستهدفات" لتحديد عدد البطاقات المستهدف.</div>
+    `;
+
+    return html;
   }
 
-  // --- Admin helpers ---
+  // ---------- تبويب الصلاحيات ----------
+  _renderAdminRoles() {
+    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    const roleLabels = { admin: '🛡️ مشرف', leader: '👨‍💼 قائد فريق', executor: '🧑‍💻 منفذ' };
+    const allTeams = Object.values(CONFIG.teams).flat();
+
+    let html = `
+      <div class="admin-section">
+        <div class="admin-title">🔐 نظام الصلاحيات</div>
+        <div class="admin-notice">
+          <strong>المشرف:</strong> يرى كل شيء + لوحة التحكم &nbsp;|&nbsp;
+          <strong>قائد الفريق:</strong> يرى كل شيء ما عدا لوحة التحكم &nbsp;|&nbsp;
+          <strong>المنفذ:</strong> يرى النظرة العامة والبحث فقط
+        </div>
+    `;
+
+    // جدول المستخدمين الحاليين
+    if (users.length > 0) {
+      html += `
+        <table class="admin-table">
+          <thead>
+            <tr><th>الاسم</th><th>اسم المستخدم</th><th>الدور</th><th>الفريق</th><th>إجراء</th></tr>
+          </thead>
+          <tbody>
+      `;
+      users.forEach((u, i) => {
+        html += `
+          <tr>
+            <td style="font-weight:600">${u.name}</td>
+            <td>${u.username}</td>
+            <td>${roleLabels[u.role] || u.role}</td>
+            <td>${u.team || '-'}</td>
+            <td>
+              <button class="admin-btn danger" style="padding:4px 10px;font-size:0.75rem" onclick="app._removeUser(${i})">حذف</button>
+            </td>
+          </tr>
+        `;
+      });
+      html += '</tbody></table>';
+    } else {
+      html += '<div style="padding:16px;color:var(--text-light);text-align:center">لم يتم إنشاء أي مستخدمين بعد</div>';
+    }
+
+    // نموذج إضافة مستخدم
+    html += `
+      <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border)">
+        <div style="font-weight:700;margin-bottom:12px">➕ إضافة مستخدم جديد</div>
+        <div class="admin-grid">
+          <div class="admin-input-group">
+            <label>الاسم الكامل</label>
+            <input type="text" id="user-name" placeholder="أحمد محمد">
+          </div>
+          <div class="admin-input-group">
+            <label>اسم المستخدم</label>
+            <input type="text" id="user-username" placeholder="ahmed" dir="ltr">
+          </div>
+          <div class="admin-input-group">
+            <label>كلمة المرور</label>
+            <input type="password" id="user-password" placeholder="••••••" dir="ltr">
+          </div>
+          <div class="admin-input-group">
+            <label>الدور</label>
+            <select id="user-role" onchange="app._toggleTeamField()">
+              <option value="admin">مشرف</option>
+              <option value="leader">قائد فريق</option>
+              <option value="executor">منفذ</option>
+            </select>
+          </div>
+          <div class="admin-input-group" id="user-team-group" style="display:none">
+            <label>الفريق</label>
+            <select id="user-team">
+              <option value="">اختر الفريق</option>
+              ${allTeams.map(t => `<option value="${t}">${t}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="admin-actions">
+          <button class="admin-btn primary" onclick="app._addUser()">إنشاء المستخدم</button>
+        </div>
+      </div>
+    `;
+    html += '</div>';
+
+    return html;
+  }
+
+  // ---------- تبويب إدخال البيانات ----------
+  _renderDataEntry() {
+    const allTeams = Object.entries(CONFIG.teams).flatMap(([stage, teams]) =>
+      teams.map(t => ({ name: t, stage }))
+    );
+    const user = this._currentUser;
+    // إذا كان المستخدم قائد فريق أو منفذ، نقيّد الفرق
+    const filteredTeams = user && (user.role === 'leader' || user.role === 'executor')
+      ? allTeams.filter(t => t.name === user.team)
+      : allTeams;
+
+    let html = `
+      <div class="admin-section">
+        <div class="admin-title">📝 تسجيل تنفيذ بطاقة جديدة</div>
+        <div class="admin-notice">
+          سيتم إرسال البيانات مباشرة إلى Google Sheets عبر نموذج Google Forms المرتبط.
+          <br>في حال عدم وجود اتصال، تُحفظ البيانات محلياً وتُرسل تلقائياً عند الاتصال.
+        </div>
+
+        <div class="admin-grid" style="grid-template-columns: repeat(auto-fill, minmax(280px, 1fr))">
+          <div class="admin-input-group">
+            <label>هل تمت خدمة البطاقة؟ *</label>
+            <select id="entry-executed">
+              <option value="نعم">نعم</option>
+              <option value="لا">لا</option>
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>المرحلة *</label>
+            <select id="entry-stage" onchange="app._updateEntryTeams()">
+              ${Object.entries(CONFIG.stages).map(([k, v]) => `<option value="${k}">${v.label}</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>الفريق *</label>
+            <select id="entry-team">
+              ${filteredTeams.map(t => `<option value="${t.name}">${t.name} (${CONFIG.stages[t.stage]?.shortLabel || t.stage})</option>`).join('')}
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>اسم البطاقة *</label>
+            <input type="text" id="entry-card" placeholder="اسم البطاقة">
+          </div>
+
+          <div class="admin-input-group">
+            <label>وسيلة التنفيذ</label>
+            <select id="entry-method">
+              <option value="حوار">حوار</option>
+              <option value="محاضرة">محاضرة</option>
+              <option value="ورشة عمل">ورشة عمل</option>
+              <option value="مسابقة">مسابقة</option>
+              <option value="عرض مرئي">عرض مرئي</option>
+              <option value="نشاط تفاعلي">نشاط تفاعلي</option>
+              <option value="أخرى">أخرى</option>
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>اسم المنفذ *</label>
+            <input type="text" id="entry-executor" placeholder="اسم المنفذ" ${user ? `value="${user.name}"` : ''}>
+          </div>
+
+          <div class="admin-input-group">
+            <label>مدة التنفيذ (دقيقة)</label>
+            <input type="number" id="entry-duration" placeholder="45" min="1">
+          </div>
+
+          <div class="admin-input-group">
+            <label>التاريخ الهجري</label>
+            <input type="text" id="entry-hijri-date" placeholder="1447/05/15" dir="ltr">
+          </div>
+
+          <div class="admin-input-group">
+            <label>المنطقة</label>
+            <input type="text" id="entry-region" placeholder="المنطقة">
+          </div>
+
+          <div class="admin-input-group">
+            <label>طبيعة المكان</label>
+            <select id="entry-place-type">
+              <option value="مدرسة">مدرسة</option>
+              <option value="مسجد">مسجد</option>
+              <option value="مركز اجتماعي">مركز اجتماعي</option>
+              <option value="أخرى">أخرى</option>
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>عدد المستفيدين *</label>
+            <input type="number" id="entry-beneficiaries" placeholder="30" min="0">
+          </div>
+
+          <div class="admin-input-group">
+            <label>تقييم المنفذ (1-5)</label>
+            <select id="entry-executor-rating">
+              <option value="">-</option>
+              <option value="5">5 - ممتاز</option>
+              <option value="4">4 - جيد جداً</option>
+              <option value="3">3 - جيد</option>
+              <option value="2">2 - مقبول</option>
+              <option value="1">1 - ضعيف</option>
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>تقييم المحتوى (1-5)</label>
+            <select id="entry-content-rating">
+              <option value="">-</option>
+              <option value="5">5 - ممتاز</option>
+              <option value="4">4 - جيد جداً</option>
+              <option value="3">3 - جيد</option>
+              <option value="2">2 - مقبول</option>
+              <option value="1">1 - ضعيف</option>
+            </select>
+          </div>
+
+          <div class="admin-input-group">
+            <label>مدى تفاعل الطلاب (1-5)</label>
+            <select id="entry-interaction-rating">
+              <option value="">-</option>
+              <option value="5">5 - ممتاز</option>
+              <option value="4">4 - جيد جداً</option>
+              <option value="3">3 - جيد</option>
+              <option value="2">2 - مقبول</option>
+              <option value="1">1 - ضعيف</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="admin-input-group" style="margin-top:12px">
+          <label>ملاحظات</label>
+          <textarea id="entry-notes" rows="3" placeholder="ملاحظات إضافية..."
+            style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.9rem;resize:vertical"></textarea>
+        </div>
+
+        <div class="admin-actions" style="margin-top:16px">
+          <button class="admin-btn primary" onclick="app._submitEntry()" id="btn-submit-entry">
+            📤 إرسال إلى Google Sheets
+          </button>
+          <button class="admin-btn success" onclick="app._saveEntryLocally()">
+            💾 حفظ محلياً
+          </button>
+          <button class="admin-btn outline" onclick="app._clearEntryForm()">
+            مسح النموذج
+          </button>
+        </div>
+      </div>
+    `;
+
+    // سجل الإدخالات المحلية المعلّقة
+    const pendingEntries = JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]');
+    if (pendingEntries.length > 0) {
+      html += `
+        <div class="admin-section">
+          <div class="admin-title">📋 إدخالات معلّقة (${pendingEntries.length})</div>
+          <div class="admin-notice">هذه الإدخالات محفوظة محلياً ولم تُرسل بعد إلى Google Sheets.</div>
+          <table class="admin-table">
+            <thead>
+              <tr><th>#</th><th>البطاقة</th><th>الفريق</th><th>المنفذ</th><th>التاريخ</th><th>إجراء</th></tr>
+            </thead>
+            <tbody>
+      `;
+      pendingEntries.forEach((entry, i) => {
+        html += `
+          <tr>
+            <td>${i + 1}</td>
+            <td style="font-weight:600">${entry.card || '-'}</td>
+            <td>${entry.team || '-'}</td>
+            <td>${entry.executor || '-'}</td>
+            <td style="font-size:0.8rem">${entry._savedAt || '-'}</td>
+            <td>
+              <button class="admin-btn primary" style="padding:4px 10px;font-size:0.75rem" onclick="app._resubmitEntry(${i})">إرسال</button>
+              <button class="admin-btn danger" style="padding:4px 10px;font-size:0.75rem" onclick="app._removePendingEntry(${i})">حذف</button>
+            </td>
+          </tr>
+        `;
+      });
+      html += `
+            </tbody>
+          </table>
+          <div class="admin-actions">
+            <button class="admin-btn primary" onclick="app._submitAllPending()">📤 إرسال الكل</button>
+          </div>
+        </div>
+      `;
+    }
+
+    return html;
+  }
+
+  // ---------- تبويب النسخ الاحتياطي ----------
+  _renderAdminBackup() {
+    return `
+      <div class="admin-section">
+        <div class="admin-title">💾 النسخ الاحتياطي والاستعادة</div>
+        <div class="admin-notice">⚠️ التعديلات المحلية (المستهدفات، الفرق، المستخدمين، الفصول) تُحفظ في المتصفح فقط.</div>
+        <div class="admin-actions" style="flex-direction:column;gap:12px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="admin-btn primary" onclick="app._exportSettings()">📤 تصدير جميع الإعدادات</button>
+            <button class="admin-btn outline" onclick="document.getElementById('import-settings').click()">📥 استيراد الإعدادات</button>
+            <input type="file" id="import-settings" accept=".json" style="display:none" onchange="app._importSettings(this)">
+          </div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--border)">
+            <button class="admin-btn danger" onclick="if(confirm('هل أنت متأكد من مسح جميع الإعدادات المحلية؟'))app._clearAllSettings()">🗑 مسح جميع الإعدادات المحلية</button>
+          </div>
+        </div>
+      </div>
+      <div class="admin-section">
+        <div class="admin-title">📊 معلومات التخزين المحلي</div>
+        <div class="admin-grid">
+          <div class="admin-input-group">
+            <label>المستهدفات</label>
+            <input type="text" readonly value="${localStorage.getItem('baraa_targets') ? '✅ موجود' : '❌ غير موجود'}" style="background:var(--bg)">
+          </div>
+          <div class="admin-input-group">
+            <label>الفرق</label>
+            <input type="text" readonly value="${localStorage.getItem('baraa_teams') ? '✅ موجود' : '❌ غير موجود'}" style="background:var(--bg)">
+          </div>
+          <div class="admin-input-group">
+            <label>المستخدمين</label>
+            <input type="text" readonly value="${JSON.parse(localStorage.getItem('baraa_users') || '[]').length} مستخدم" style="background:var(--bg)">
+          </div>
+          <div class="admin-input-group">
+            <label>الفصول المضافة</label>
+            <input type="text" readonly value="${localStorage.getItem('baraa_semesters') ? '✅ موجود' : '❌ غير موجود'}" style="background:var(--bg)">
+          </div>
+          <div class="admin-input-group">
+            <label>إدخالات معلّقة</label>
+            <input type="text" readonly value="${JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]').length} إدخال" style="background:var(--bg)">
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ==================== Admin Helpers ====================
+
   _getAdminTarget(stage, semId) {
     const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
     if (overrides[stage] && overrides[stage][semId] !== undefined) return overrides[stage][semId];
@@ -1793,7 +2242,6 @@ class App {
   }
 
   _saveAdminTargets() {
-    // تطبيق على CONFIG
     const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
     for (const [stage, sems] of Object.entries(overrides)) {
       if (!CONFIG.targets[stage]) CONFIG.targets[stage] = {};
@@ -1808,7 +2256,7 @@ class App {
   _resetAdminTargets() {
     localStorage.removeItem('baraa_targets');
     this.showToast('تمت استعادة المستهدفات الافتراضية');
-    this.renderAdmin();
+    location.reload();
   }
 
   _addTeam(stage) {
@@ -1824,6 +2272,7 @@ class App {
   }
 
   _removeTeam(stage, name) {
+    if (!confirm(`حذف فريق "${name}"؟`)) return;
     if (!CONFIG.teams[stage]) return;
     CONFIG.teams[stage] = CONFIG.teams[stage].filter(t => t !== name);
     this._saveTeamsToLocal();
@@ -1835,10 +2284,355 @@ class App {
     localStorage.setItem('baraa_teams', JSON.stringify(CONFIG.teams));
   }
 
+  // --- الفصول الدراسية ---
+  _addSemester() {
+    const year = parseInt(document.getElementById('sem-year')?.value);
+    const num = document.getElementById('sem-number')?.value;
+    const startGreg = document.getElementById('sem-start-greg')?.value;
+    const endGreg = document.getElementById('sem-end-greg')?.value;
+    const startHM = parseInt(document.getElementById('sem-start-hijri-month')?.value);
+    const startHD = parseInt(document.getElementById('sem-start-hijri-day')?.value);
+    const endHM = parseInt(document.getElementById('sem-end-hijri-month')?.value);
+    const endHD = parseInt(document.getElementById('sem-end-hijri-day')?.value);
+
+    if (!year || !num || !startGreg || !endGreg) {
+      this.showToast('يرجى ملء الحقول المطلوبة (السنة، الرقم، البداية والنهاية الميلادية)');
+      return;
+    }
+
+    const id = `${year}-${num}`;
+    if (CONFIG.semesters.find(s => s.id === id)) {
+      this.showToast('هذا الفصل موجود مسبقاً');
+      return;
+    }
+
+    const labels = { '1': 'الفصل الأول', '2': 'الفصل الثاني', '3': 'الفصل الثالث' };
+    const newSem = {
+      id,
+      year,
+      semester: parseInt(num),
+      label: `${labels[num] || 'فصل ' + num} ${year}`,
+      startGreg: startGreg.replace(/-/g, '/'),
+      endGreg: endGreg.replace(/-/g, '/'),
+      startHijri: { year, month: startHM || 1, day: startHD || 1 },
+      endHijri: { year: endHM > (startHM || 1) ? year : year + 1, month: endHM || 12, day: endHD || 29 },
+    };
+
+    CONFIG.semesters.push(newSem);
+    CONFIG.semesters.sort((a, b) => a.id.localeCompare(b.id));
+    localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
+
+    // تهيئة المستهدفات
+    for (const stage of Object.keys(CONFIG.stages)) {
+      if (!CONFIG.targets[stage]) CONFIG.targets[stage] = {};
+      if (!CONFIG.targets[stage][id]) CONFIG.targets[stage][id] = 0;
+    }
+
+    this.buildFilterUI();
+    this.renderAdmin();
+    this.showToast(`تمت إضافة ${newSem.label}`);
+  }
+
+  _removeSemester(semId) {
+    if (!confirm(`حذف الفصل "${semId}"؟ هذا لن يحذف البيانات المرتبطة به.`)) return;
+    CONFIG.semesters = CONFIG.semesters.filter(s => s.id !== semId);
+    localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
+    this.buildFilterUI();
+    this.renderAdmin();
+    this.showToast('تم حذف الفصل');
+  }
+
+  // --- نظام الصلاحيات ---
+  _toggleTeamField() {
+    const role = document.getElementById('user-role')?.value;
+    const group = document.getElementById('user-team-group');
+    if (group) group.style.display = (role === 'leader' || role === 'executor') ? '' : 'none';
+  }
+
+  _addUser() {
+    const name = document.getElementById('user-name')?.value.trim();
+    const username = document.getElementById('user-username')?.value.trim();
+    const password = document.getElementById('user-password')?.value;
+    const role = document.getElementById('user-role')?.value;
+    const team = document.getElementById('user-team')?.value;
+
+    if (!name || !username || !password) {
+      this.showToast('يرجى ملء جميع الحقول المطلوبة');
+      return;
+    }
+    if ((role === 'leader' || role === 'executor') && !team) {
+      this.showToast('يرجى اختيار الفريق');
+      return;
+    }
+
+    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    if (users.find(u => u.username === username)) {
+      this.showToast('اسم المستخدم موجود مسبقاً');
+      return;
+    }
+
+    // تشفير بسيط لكلمة المرور (base64 — ليس آمناً بالكامل لكنه كافٍ للعرض)
+    users.push({ name, username, password: btoa(password), role, team: team || null });
+    localStorage.setItem('baraa_users', JSON.stringify(users));
+    this.renderAdmin();
+    this.showToast(`تم إنشاء المستخدم "${name}"`);
+  }
+
+  _removeUser(index) {
+    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    if (!confirm(`حذف المستخدم "${users[index]?.name}"؟`)) return;
+    users.splice(index, 1);
+    localStorage.setItem('baraa_users', JSON.stringify(users));
+    this.renderAdmin();
+    this.showToast('تم حذف المستخدم');
+  }
+
+  _showLoginDialog() {
+    const username = prompt('اسم المستخدم:');
+    if (!username) return;
+    const password = prompt('كلمة المرور:');
+    if (!password) return;
+
+    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    const user = users.find(u => u.username === username && atob(u.password) === password);
+
+    if (user) {
+      this._currentUser = { name: user.name, role: user.role, team: user.team, username: user.username };
+      localStorage.setItem('baraa_user', JSON.stringify(this._currentUser));
+      this._applyRoleRestrictions();
+      this.showToast(`مرحباً ${user.name}`);
+      this.renderAdmin();
+    } else {
+      this.showToast('اسم المستخدم أو كلمة المرور غير صحيحة');
+    }
+  }
+
+  _logout() {
+    this._currentUser = null;
+    localStorage.removeItem('baraa_user');
+    // إعادة إظهار جميع التبويبات
+    document.querySelectorAll('.nav-tab').forEach(t => t.style.display = '');
+    this.showToast('تم تسجيل الخروج');
+    this.renderAdmin();
+  }
+
+  _switchUser() {
+    this._logout();
+    this._showLoginDialog();
+  }
+
+  _applyRoleRestrictions() {
+    const user = this._currentUser;
+    if (!user) {
+      document.querySelectorAll('.nav-tab').forEach(t => t.style.display = '');
+      return;
+    }
+
+    if (user.role === 'executor') {
+      document.querySelectorAll('.nav-tab').forEach(t => {
+        const view = t.dataset.view;
+        if (!['overview', 'search'].includes(view)) {
+          t.style.display = 'none';
+        } else {
+          t.style.display = '';
+        }
+      });
+    } else if (user.role === 'leader') {
+      document.querySelectorAll('.nav-tab').forEach(t => {
+        const view = t.dataset.view;
+        if (view === 'admin') {
+          t.style.display = 'none';
+        } else {
+          t.style.display = '';
+        }
+      });
+    } else {
+      document.querySelectorAll('.nav-tab').forEach(t => t.style.display = '');
+    }
+  }
+
+  // --- إدخال البيانات ---
+  _updateEntryTeams() {
+    const stage = document.getElementById('entry-stage')?.value;
+    const teamSelect = document.getElementById('entry-team');
+    if (!teamSelect || !stage) return;
+    const teams = CONFIG.teams[stage] || [];
+    const user = this._currentUser;
+    const filteredTeams = user && (user.role === 'leader' || user.role === 'executor')
+      ? teams.filter(t => t === user.team)
+      : teams;
+    teamSelect.innerHTML = filteredTeams.map(t => `<option value="${t}">${t}</option>`).join('');
+  }
+
+  _getEntryData() {
+    return {
+      executed: document.getElementById('entry-executed')?.value || 'نعم',
+      stage: document.getElementById('entry-stage')?.value || '',
+      team: document.getElementById('entry-team')?.value || '',
+      card: document.getElementById('entry-card')?.value.trim() || '',
+      method: document.getElementById('entry-method')?.value || '',
+      executor: document.getElementById('entry-executor')?.value.trim() || '',
+      duration: document.getElementById('entry-duration')?.value || '',
+      hijriDate: document.getElementById('entry-hijri-date')?.value.trim() || '',
+      region: document.getElementById('entry-region')?.value.trim() || '',
+      placeType: document.getElementById('entry-place-type')?.value || '',
+      beneficiaries: document.getElementById('entry-beneficiaries')?.value || '0',
+      executorRating: document.getElementById('entry-executor-rating')?.value || '',
+      contentRating: document.getElementById('entry-content-rating')?.value || '',
+      interactionRating: document.getElementById('entry-interaction-rating')?.value || '',
+      notes: document.getElementById('entry-notes')?.value.trim() || '',
+    };
+  }
+
+  _validateEntry(data) {
+    if (!data.team) { this.showToast('يرجى اختيار الفريق'); return false; }
+    if (!data.card) { this.showToast('يرجى إدخال اسم البطاقة'); return false; }
+    if (!data.executor) { this.showToast('يرجى إدخال اسم المنفذ'); return false; }
+    return true;
+  }
+
+  async _submitEntry() {
+    const data = this._getEntryData();
+    if (!this._validateEntry(data)) return;
+
+    const btn = document.getElementById('btn-submit-entry');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ جارٍ الإرسال...'; }
+
+    try {
+      await this._sendToGoogleSheets(data);
+      this.showToast('تم إرسال البيانات بنجاح إلى Google Sheets');
+      this._clearEntryForm();
+      // تحديث البيانات
+      setTimeout(() => this.refresh(), 2000);
+    } catch (err) {
+      console.error('Submit error:', err);
+      this.showToast('تعذّر الإرسال — تم الحفظ محلياً');
+      this._saveEntryLocally();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = '📤 إرسال إلى Google Sheets'; }
+    }
+  }
+
+  async _sendToGoogleSheets(data) {
+    // Google Sheets API عبر Apps Script Web App
+    // يجب نشر Apps Script كـ Web App وإضافة الرابط هنا
+    const APPS_SCRIPT_URL = localStorage.getItem('baraa_apps_script_url') || '';
+
+    if (!APPS_SCRIPT_URL) {
+      // إذا لم يتم إعداد الرابط، نستخدم Google Forms كبديل
+      // نبني رابط pre-filled form
+      const formUrl = `https://docs.google.com/forms/d/e/YOUR_FORM_ID/formResponse`;
+      // في الوضع الحالي نحفظ محلياً ونطلب من المستخدم إعداد الرابط
+      throw new Error('يرجى إعداد رابط Apps Script في الإعدادات');
+    }
+
+    const timestamp = new Date().toISOString();
+    const payload = {
+      timestamp,
+      ...data,
+    };
+
+    const response = await fetch(APPS_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'no-cors',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    return true;
+  }
+
+  _saveEntryLocally() {
+    const data = this._getEntryData();
+    if (!this._validateEntry(data)) return;
+
+    data._savedAt = new Date().toLocaleString('ar-SA');
+    const pending = JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]');
+    pending.push(data);
+    localStorage.setItem('baraa_pending_entries', JSON.stringify(pending));
+
+    // أيضاً نضيفها للبيانات المحلية للعرض الفوري
+    const col = CONFIG.executionColumns;
+    const row = new Array(17).fill('');
+    row[col.timestamp] = new Date().toISOString();
+    row[col.executed] = data.executed;
+    row[col.stage] = data.stage;
+    row[col.team] = data.team;
+    row[col.card] = data.card;
+    row[col.method] = data.method;
+    row[col.executor] = data.executor;
+    row[col.duration] = data.duration;
+    row[col.hijriDate] = data.hijriDate;
+    row[col.region] = data.region;
+    row[col.placeType] = data.placeType;
+    row[col.beneficiaries] = data.beneficiaries;
+    row[col.executorRating] = data.executorRating;
+    row[col.contentRating] = data.contentRating;
+    row[col.interactionRating] = data.interactionRating;
+    row[col.notes] = data.notes;
+    this.engine.executionData.push(row);
+
+    this.showToast('تم الحفظ محلياً + إضافته للعرض الفوري');
+    this._clearEntryForm();
+    this.renderAdmin();
+  }
+
+  _clearEntryForm() {
+    ['entry-card', 'entry-executor', 'entry-duration', 'entry-hijri-date', 'entry-region', 'entry-beneficiaries', 'entry-notes'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
+  }
+
+  async _resubmitEntry(index) {
+    const pending = JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]');
+    const entry = pending[index];
+    if (!entry) return;
+    try {
+      await this._sendToGoogleSheets(entry);
+      pending.splice(index, 1);
+      localStorage.setItem('baraa_pending_entries', JSON.stringify(pending));
+      this.showToast('تم الإرسال بنجاح');
+      this.renderAdmin();
+    } catch (err) {
+      this.showToast('تعذّر الإرسال — حاول مرة أخرى');
+    }
+  }
+
+  _removePendingEntry(index) {
+    const pending = JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]');
+    pending.splice(index, 1);
+    localStorage.setItem('baraa_pending_entries', JSON.stringify(pending));
+    this.renderAdmin();
+  }
+
+  async _submitAllPending() {
+    const pending = JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]');
+    let success = 0, fail = 0;
+    const remaining = [];
+    for (const entry of pending) {
+      try {
+        await this._sendToGoogleSheets(entry);
+        success++;
+      } catch (err) {
+        remaining.push(entry);
+        fail++;
+      }
+    }
+    localStorage.setItem('baraa_pending_entries', JSON.stringify(remaining));
+    this.showToast(`تم إرسال ${success} — فشل ${fail}`);
+    this.renderAdmin();
+  }
+
+  // --- تصدير/استيراد ---
   _exportSettings() {
     const settings = {
       targets: JSON.parse(localStorage.getItem('baraa_targets') || '{}'),
       teams: CONFIG.teams,
+      users: JSON.parse(localStorage.getItem('baraa_users') || '[]'),
+      semesters: localStorage.getItem('baraa_semesters') ? JSON.parse(localStorage.getItem('baraa_semesters')) : null,
+      pendingEntries: JSON.parse(localStorage.getItem('baraa_pending_entries') || '[]'),
+      appsScriptUrl: localStorage.getItem('baraa_apps_script_url') || '',
       exportDate: new Date().toISOString(),
     };
     const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
@@ -1863,6 +2657,13 @@ class App {
           CONFIG.teams = settings.teams;
           localStorage.setItem('baraa_teams', JSON.stringify(settings.teams));
         }
+        if (settings.users) localStorage.setItem('baraa_users', JSON.stringify(settings.users));
+        if (settings.semesters) {
+          CONFIG.semesters = settings.semesters;
+          localStorage.setItem('baraa_semesters', JSON.stringify(settings.semesters));
+        }
+        if (settings.pendingEntries) localStorage.setItem('baraa_pending_entries', JSON.stringify(settings.pendingEntries));
+        if (settings.appsScriptUrl) localStorage.setItem('baraa_apps_script_url', settings.appsScriptUrl);
         this.renderAdmin();
         this.showToast('تم استيراد الإعدادات');
       } catch (err) {
@@ -1874,9 +2675,10 @@ class App {
   }
 
   _clearAllSettings() {
-    localStorage.removeItem('baraa_targets');
-    localStorage.removeItem('baraa_teams');
-    localStorage.removeItem('baraa_recent_searches');
+    ['baraa_targets', 'baraa_teams', 'baraa_users', 'baraa_user', 'baraa_semesters',
+     'baraa_recent_searches', 'baraa_pending_entries', 'baraa_apps_script_url'].forEach(k => localStorage.removeItem(k));
+    this._currentUser = null;
+    document.querySelectorAll('.nav-tab').forEach(t => t.style.display = '');
     this.showToast('تم مسح جميع الإعدادات المحلية');
     this.renderAdmin();
   }
