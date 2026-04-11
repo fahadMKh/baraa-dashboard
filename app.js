@@ -25,6 +25,7 @@ class App {
 
   async init() {
     this.showLoading(true);
+    this._loadAdminSettings();
     try {
       await this.engine.fetchAll();
       // افتح على الفصل الدراسي الحالي تلقائياً
@@ -41,6 +42,21 @@ class App {
     } finally {
       this.showLoading(false);
     }
+  }
+
+  /** تحميل الإعدادات المحلية */
+  _loadAdminSettings() {
+    // تحميل المستهدفات المحفوظة
+    const targets = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
+    for (const [stage, sems] of Object.entries(targets)) {
+      if (!CONFIG.targets[stage]) CONFIG.targets[stage] = {};
+      for (const [semId, val] of Object.entries(sems)) {
+        CONFIG.targets[stage][semId] = val;
+      }
+    }
+    // تحميل الفرق المحفوظة
+    const teams = JSON.parse(localStorage.getItem('baraa_teams') || 'null');
+    if (teams) CONFIG.teams = teams;
   }
 
   // ==================== التنقل ====================
@@ -77,6 +93,11 @@ class App {
       case 'teams': this.renderTeams(); break;
       case 'quality': this.renderQuality(); break;
       case 'team-detail': this.renderTeamDetail(this.viewParams); break;
+      case 'analytics': this.renderAnalytics(); break;
+      case 'comparison': this.renderComparison(); break;
+      case 'search': this.renderSearch(); break;
+      case 'alerts': this.renderAlerts(); break;
+      case 'admin': this.renderAdmin(); break;
     }
   }
 
@@ -1098,6 +1119,906 @@ class App {
   _localDate(val) {
     const [y, m, d] = val.split('-').map(Number);
     return new Date(y, m - 1, d);
+  }
+
+  // ==================== التحليلات ====================
+  renderAnalytics() {
+    const container = document.getElementById('view-analytics');
+    const filter = this.getCurrentFilter();
+    const heatmap = this.engine.getActivityHeatmap(filter);
+    const weekly = this.engine.getWeeklyProgress(filter);
+    const methods = this.engine.getMethodDistribution(filter);
+    const projections = this.engine.getProjections(filter);
+    const patterns = this.engine.getQualityPatterns(filter);
+
+    let html = '';
+
+    // خريطة النشاط
+    const dayLabels = ['أحد', 'إثن', 'ثلا', 'أرب', 'خمي', 'جمع', 'سبت'];
+    html += `
+      <div class="heatmap-container">
+        <div class="heatmap-title">خريطة النشاط (آخر 12 أسبوع)</div>
+        <div class="heatmap-labels">
+          ${dayLabels.map(d => `<span>${d}</span>`).join('')}
+        </div>
+        <div class="heatmap-grid">
+          ${heatmap.map(c => `<div class="heatmap-cell" data-level="${c.level}" data-tooltip="${c.date}: ${c.count} تنفيذ"></div>`).join('')}
+        </div>
+        <div class="heatmap-legend">
+          <span>أقل</span>
+          <div class="cell" style="background:#ebedf0"></div>
+          <div class="cell" style="background:#9be9a8"></div>
+          <div class="cell" style="background:#40c463"></div>
+          <div class="cell" style="background:#30a14e"></div>
+          <div class="cell" style="background:#216e39"></div>
+          <span>أكثر</span>
+        </div>
+      </div>
+    `;
+
+    // رسم التقدم الأسبوعي
+    html += `
+      <div class="charts-row">
+        <div class="chart-container">
+          <div class="chart-title">التقدم الأسبوعي</div>
+          <canvas id="chart-weekly-progress"></canvas>
+        </div>
+        <div class="chart-container">
+          <div class="chart-title">توزيع وسائل التنفيذ</div>
+          <canvas id="chart-methods"></canvas>
+        </div>
+      </div>
+    `;
+
+    // تحليل أنماط الجودة
+    if (patterns.periodAnalysis.length > 0) {
+      html += `
+        <div class="charts-row">
+          <div class="chart-container">
+            <div class="chart-title">الجودة حسب الفترة</div>
+            <canvas id="chart-quality-period"></canvas>
+          </div>
+      `;
+      if (patterns.topDeficiencies.length > 0) {
+        html += `
+          <div class="chart-container">
+            <div class="chart-title">أبرز أسباب النقص</div>
+            <canvas id="chart-deficiencies"></canvas>
+          </div>
+        `;
+      }
+      html += '</div>';
+    }
+
+    // توقعات الإكمال
+    html += `
+      <div class="section-header">
+        <h2 class="section-title">توقعات إكمال المستهدف</h2>
+      </div>
+      <div class="projection-cards">
+    `;
+    projections.forEach(p => {
+      let statusClass = '', statusText = '', dateText = '';
+      if (p.status === 'completed') {
+        statusClass = 'completed';
+        statusText = 'مكتمل';
+        dateText = '✅ تم الإكمال';
+      } else if (p.status === 'on-track') {
+        statusClass = 'on-track';
+        statusText = 'على المسار';
+        dateText = p.projectedDate ? p.projectedDate.toLocaleDateString('ar-SA') : '-';
+      } else if (p.status === 'behind') {
+        statusClass = 'behind';
+        statusText = 'متأخر';
+        dateText = p.projectedDate ? p.projectedDate.toLocaleDateString('ar-SA') : '-';
+      } else {
+        statusClass = '';
+        statusText = 'بيانات غير كافية';
+        dateText = '-';
+      }
+      html += `
+        <div class="projection-card ${statusClass}">
+          <div class="proj-team">${p.team} <span style="font-size:0.75rem;color:var(--text-light)">(${CONFIG.stages[p.stage]?.shortLabel || p.stage})</span></div>
+          <div class="proj-date">${dateText}</div>
+          <div class="proj-sub">${statusText} — ${p.executed}/${p.target} بطاقة${p.daysRemaining ? ` — ${p.daysRemaining} يوم متبقي` : ''}</div>
+        </div>
+      `;
+    });
+    html += '</div>';
+
+    container.innerHTML = html;
+
+    // رسم الأسبوعي
+    this.destroyChart('chart-weekly-progress');
+    const ctx1 = document.getElementById('chart-weekly-progress');
+    if (ctx1) {
+      this.charts['chart-weekly-progress'] = new Chart(ctx1, {
+        type: 'line',
+        data: {
+          labels: weekly.map(w => w.label),
+          datasets: [{
+            label: 'عدد التنفيذات',
+            data: weekly.map(w => w.count),
+            borderColor: '#4A7EA5',
+            backgroundColor: 'rgba(74,126,165,0.15)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 5,
+            pointBackgroundColor: '#4A7EA5',
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true } },
+        },
+      });
+    }
+
+    // رسم الوسائل
+    this.destroyChart('chart-methods');
+    const ctx2 = document.getElementById('chart-methods');
+    if (ctx2 && methods.length > 0) {
+      this.charts['chart-methods'] = new Chart(ctx2, {
+        type: 'doughnut',
+        data: {
+          labels: methods.map(m => m.name),
+          datasets: [{
+            data: methods.map(m => m.count),
+            backgroundColor: CONFIG.display.chartColors.slice(0, methods.length),
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { position: 'bottom', labels: { font: { family: 'Tajawal' } } } },
+        },
+      });
+    }
+
+    // رسم الجودة حسب الفترة
+    this.destroyChart('chart-quality-period');
+    const ctx3 = document.getElementById('chart-quality-period');
+    if (ctx3 && patterns.periodAnalysis.length > 0) {
+      this.charts['chart-quality-period'] = new Chart(ctx3, {
+        type: 'bar',
+        data: {
+          labels: patterns.periodAnalysis.map(p => p.period),
+          datasets: [{
+            label: 'متوسط الجودة',
+            data: patterns.periodAnalysis.map(p => p.avg.toFixed(1)),
+            backgroundColor: patterns.periodAnalysis.map(p => this.engine.getQualityLevel(p.avg).color + 'CC'),
+            borderColor: patterns.periodAnalysis.map(p => this.engine.getQualityLevel(p.avg).color),
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, max: 10 } },
+        },
+      });
+    }
+
+    // رسم أسباب النقص
+    this.destroyChart('chart-deficiencies');
+    const ctx4 = document.getElementById('chart-deficiencies');
+    if (ctx4 && patterns.topDeficiencies.length > 0) {
+      this.charts['chart-deficiencies'] = new Chart(ctx4, {
+        type: 'bar',
+        data: {
+          labels: patterns.topDeficiencies.map(d => d.reason.substring(0, 30)),
+          datasets: [{
+            label: 'عدد المرات',
+            data: patterns.topDeficiencies.map(d => d.count),
+            backgroundColor: '#D95F5FCC',
+            borderColor: '#D95F5F',
+            borderWidth: 1,
+            borderRadius: 4,
+          }],
+        },
+        options: {
+          responsive: true,
+          indexAxis: 'y',
+          plugins: { legend: { display: false } },
+          scales: { x: { beginAtZero: true }, y: { ticks: { font: { family: 'Tajawal', size: 11 } } } },
+        },
+      });
+    }
+  }
+
+  // ==================== المقارنة ====================
+  renderComparison() {
+    const container = document.getElementById('view-comparison');
+    const semesters = CONFIG.semesters;
+
+    // القيم الافتراضية
+    if (!this._compSem1) this._compSem1 = semesters.length > 1 ? semesters[semesters.length - 2].id : semesters[0]?.id;
+    if (!this._compSem2) this._compSem2 = semesters[semesters.length - 1]?.id;
+
+    let html = `
+      <div class="comparison-header">
+        <select id="comp-sem1" onchange="app._compSem1=this.value; app.renderComparison()">
+          ${semesters.map(s => `<option value="${s.id}" ${s.id === this._compSem1 ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+        <span style="font-size:1.2rem;font-weight:700">مقابل</span>
+        <select id="comp-sem2" onchange="app._compSem2=this.value; app.renderComparison()">
+          ${semesters.map(s => `<option value="${s.id}" ${s.id === this._compSem2 ? 'selected' : ''}>${s.label}</option>`).join('')}
+        </select>
+      </div>
+    `;
+
+    if (this._compSem1 && this._compSem2) {
+      const comp = this.engine.compareSemesters(this._compSem1, this._compSem2);
+      const s1 = comp.sem1.stats, s2 = comp.sem2.stats;
+      const q1 = s1.qualityDetails?.overall || 0, q2 = s2.qualityDetails?.overall || 0;
+
+      const arrow = (v1, v2) => v2 > v1 ? '<span class="comp-arrow up">▲</span>' : v2 < v1 ? '<span class="comp-arrow down">▼</span>' : '<span class="comp-arrow neutral">━</span>';
+
+      html += `
+        <div class="comparison-cards">
+          <div class="comparison-card">
+            <div class="comp-label">إجمالي التنفيذ</div>
+            <div class="comp-values">
+              <span class="comp-val">${s1.totalExecutions}</span>
+              ${arrow(s1.totalExecutions, s2.totalExecutions)}
+              <span class="comp-val">${s2.totalExecutions}</span>
+            </div>
+          </div>
+          <div class="comparison-card">
+            <div class="comp-label">المستفيدون</div>
+            <div class="comp-values">
+              <span class="comp-val">${s1.totalBeneficiaries.toLocaleString('ar-SA')}</span>
+              ${arrow(s1.totalBeneficiaries, s2.totalBeneficiaries)}
+              <span class="comp-val">${s2.totalBeneficiaries.toLocaleString('ar-SA')}</span>
+            </div>
+          </div>
+          <div class="comparison-card">
+            <div class="comp-label">الفرق النشطة</div>
+            <div class="comp-values">
+              <span class="comp-val">${s1.activeTeams}</span>
+              ${arrow(s1.activeTeams, s2.activeTeams)}
+              <span class="comp-val">${s2.activeTeams}</span>
+            </div>
+          </div>
+          <div class="comparison-card">
+            <div class="comp-label">متوسط الجودة</div>
+            <div class="comp-values">
+              <span class="comp-val">${q1 ? q1.toFixed(1) : '-'}</span>
+              ${arrow(q1, q2)}
+              <span class="comp-val">${q2 ? q2.toFixed(1) : '-'}</span>
+            </div>
+          </div>
+        </div>
+        <div class="charts-row">
+          <div class="chart-container">
+            <div class="chart-title">مقارنة إنجاز الفرق بين الفصلين</div>
+            <canvas id="chart-comp-teams"></canvas>
+          </div>
+          <div class="chart-container">
+            <div class="chart-title">مقارنة الجودة بين الفصلين</div>
+            <canvas id="chart-comp-quality"></canvas>
+          </div>
+        </div>
+      `;
+
+      container.innerHTML = html;
+
+      // رسم مقارنة الفرق
+      const allTeamNames = [...new Set([
+        ...Object.values(CONFIG.teams).flat()
+      ])];
+
+      const getTeamExec = (stats, name) => {
+        for (const s of Object.values(stats.stageStats)) {
+          const t = s.teams.find(t => t.name === name);
+          if (t) return t.executions;
+        }
+        return 0;
+      };
+      const getTeamQual = (stats, name) => {
+        for (const s of Object.values(stats.stageStats)) {
+          const t = s.teams.find(t => t.name === name);
+          if (t && t.qualityAvg !== null) return t.qualityAvg;
+        }
+        return 0;
+      };
+
+      this.destroyChart('chart-comp-teams');
+      const ctxT = document.getElementById('chart-comp-teams');
+      if (ctxT) {
+        this.charts['chart-comp-teams'] = new Chart(ctxT, {
+          type: 'bar',
+          data: {
+            labels: allTeamNames,
+            datasets: [
+              { label: comp.sem1.label, data: allTeamNames.map(n => getTeamExec(s1, n)), backgroundColor: '#4A7EA5CC', borderColor: '#4A7EA5', borderWidth: 1, borderRadius: 4 },
+              { label: comp.sem2.label, data: allTeamNames.map(n => getTeamExec(s2, n)), backgroundColor: '#6FA96CCC', borderColor: '#6FA96C', borderWidth: 1, borderRadius: 4 },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { labels: { font: { family: 'Tajawal' } } } },
+            scales: { y: { beginAtZero: true }, x: { ticks: { font: { family: 'Tajawal' } } } },
+          },
+        });
+      }
+
+      this.destroyChart('chart-comp-quality');
+      const ctxQ = document.getElementById('chart-comp-quality');
+      if (ctxQ) {
+        this.charts['chart-comp-quality'] = new Chart(ctxQ, {
+          type: 'bar',
+          data: {
+            labels: allTeamNames,
+            datasets: [
+              { label: comp.sem1.label, data: allTeamNames.map(n => getTeamQual(s1, n)), backgroundColor: '#2196F3CC', borderColor: '#2196F3', borderWidth: 1, borderRadius: 4 },
+              { label: comp.sem2.label, data: allTeamNames.map(n => getTeamQual(s2, n)), backgroundColor: '#4CAF50CC', borderColor: '#4CAF50', borderWidth: 1, borderRadius: 4 },
+            ],
+          },
+          options: {
+            responsive: true,
+            plugins: { legend: { labels: { font: { family: 'Tajawal' } } } },
+            scales: { y: { beginAtZero: true, max: 10 }, x: { ticks: { font: { family: 'Tajawal' } } } },
+          },
+        });
+      }
+    } else {
+      container.innerHTML = html;
+    }
+  }
+
+  // ==================== البحث الشامل ====================
+  renderSearch() {
+    const container = document.getElementById('view-search');
+    const query = this._searchQuery || '';
+    const recentSearches = JSON.parse(localStorage.getItem('baraa_recent_searches') || '[]');
+
+    let html = `
+      <div class="search-container">
+        <input type="text" class="search-box" placeholder="ابحث عن فريق، بطاقة، منفذ..."
+          value="${query.replace(/"/g, '&quot;')}"
+          oninput="app._searchQuery=this.value; app._searchDebounce()"
+          id="global-search-input">
+    `;
+
+    if (!query && recentSearches.length > 0) {
+      html += `
+        <div class="recent-searches">
+          <div class="recent-label">عمليات بحث سابقة</div>
+          <div class="recent-tags">
+            ${recentSearches.map(s => `<button class="recent-tag" onclick="app._searchQuery='${s.replace(/'/g, "\\'")}'; app.renderSearch()">${s}</button>`).join('')}
+          </div>
+        </div>
+      `;
+    }
+    html += '</div>';
+
+    if (query.length >= 2) {
+      // حفظ البحث
+      this._saveRecentSearch(query);
+
+      const col = CONFIG.executionColumns;
+      const filter = this.getCurrentFilter();
+
+      // بحث في الفرق
+      const allTeams = Object.values(CONFIG.teams).flat();
+      const matchedTeams = allTeams.filter(t => t.includes(query));
+      if (matchedTeams.length > 0) {
+        html += `<div class="search-results-section"><div class="section-label">الفرق (${matchedTeams.length})</div>`;
+        matchedTeams.forEach(t => {
+          const stage = Object.entries(CONFIG.teams).find(([s, teams]) => teams.includes(t));
+          html += `
+            <div class="search-result-item" onclick="app.showTeamDetail('${t}')">
+              <div class="result-icon">👥</div>
+              <div class="result-text">
+                <div class="result-title">${t}</div>
+                <div class="result-sub">${stage ? CONFIG.stages[stage[0]]?.label : ''}</div>
+              </div>
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      // بحث في البطاقات
+      const execRows = this.engine.filterExecution({ filter });
+      const matchedCards = new Map();
+      execRows.forEach(row => {
+        const card = row[col.card];
+        if (card && card.includes(query) && !matchedCards.has(card)) {
+          matchedCards.set(card, { name: card, team: row[col.team], executor: row[col.executor] });
+        }
+      });
+      if (matchedCards.size > 0) {
+        html += `<div class="search-results-section"><div class="section-label">البطاقات (${matchedCards.size})</div>`;
+        matchedCards.forEach(c => {
+          html += `
+            <div class="search-result-item" onclick="app.showTeamDetail('${c.team}')">
+              <div class="result-icon">📋</div>
+              <div class="result-text">
+                <div class="result-title">${c.name}</div>
+                <div class="result-sub">فريق ${c.team}</div>
+              </div>
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      // بحث في المنفذين
+      const matchedExecutors = new Map();
+      execRows.forEach(row => {
+        const executor = row[col.executor];
+        if (executor && executor.includes(query) && !matchedExecutors.has(executor)) {
+          matchedExecutors.set(executor, { name: executor, team: row[col.team], card: row[col.card] });
+        }
+      });
+      if (matchedExecutors.size > 0) {
+        html += `<div class="search-results-section"><div class="section-label">المنفذون (${matchedExecutors.size})</div>`;
+        matchedExecutors.forEach(e => {
+          html += `
+            <div class="search-result-item" onclick="app.showTeamDetail('${e.team}')">
+              <div class="result-icon">🧑</div>
+              <div class="result-text">
+                <div class="result-title">${e.name}</div>
+                <div class="result-sub">فريق ${e.team} — ${e.card || ''}</div>
+              </div>
+            </div>
+          `;
+        });
+        html += '</div>';
+      }
+
+      if (matchedTeams.length === 0 && matchedCards.size === 0 && matchedExecutors.size === 0) {
+        html += '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">لم يتم العثور على نتائج</div></div>';
+      }
+    } else if (query.length > 0) {
+      html += '<div class="empty-state"><div class="empty-text">أدخل حرفين على الأقل للبحث</div></div>';
+    }
+
+    container.innerHTML = html;
+    // إبقاء التركيز على حقل البحث
+    const input = document.getElementById('global-search-input');
+    if (input) { input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
+  }
+
+  _searchDebounce() {
+    clearTimeout(this._searchTimer);
+    this._searchTimer = setTimeout(() => this.renderSearch(), 250);
+  }
+
+  _saveRecentSearch(q) {
+    if (!q || q.length < 2) return;
+    let recent = JSON.parse(localStorage.getItem('baraa_recent_searches') || '[]');
+    recent = recent.filter(s => s !== q);
+    recent.unshift(q);
+    if (recent.length > 8) recent = recent.slice(0, 8);
+    localStorage.setItem('baraa_recent_searches', JSON.stringify(recent));
+  }
+
+  // ==================== التنبيهات ====================
+  renderAlerts() {
+    const container = document.getElementById('view-alerts');
+    const alerts = this.engine.getSmartAlerts(this.getCurrentFilter());
+
+    const warnings = alerts.filter(a => a.type === 'warning');
+    const achievements = alerts.filter(a => a.type === 'achievement');
+    const infos = alerts.filter(a => a.type === 'info');
+
+    let html = `
+      <div class="alerts-summary">
+        <div class="alert-summary-card">
+          <div class="alert-icon">⚠️</div>
+          <div class="alert-count" style="color:var(--danger)">${warnings.length}</div>
+          <div class="alert-label">تحتاج متابعة</div>
+        </div>
+        <div class="alert-summary-card">
+          <div class="alert-icon">🏆</div>
+          <div class="alert-count" style="color:var(--accent)">${achievements.length}</div>
+          <div class="alert-label">إنجازات</div>
+        </div>
+        <div class="alert-summary-card">
+          <div class="alert-icon">📊</div>
+          <div class="alert-count" style="color:var(--primary)">${infos.length}</div>
+          <div class="alert-label">معلومات</div>
+        </div>
+      </div>
+    `;
+
+    if (alerts.length === 0) {
+      html += '<div class="empty-state"><div class="empty-icon">✅</div><div class="empty-text">لا توجد تنبيهات — جميع الفرق تسير بشكل جيد</div></div>';
+    }
+
+    if (warnings.length > 0) {
+      html += '<div class="section-header"><h2 class="section-title">تحتاج متابعة</h2></div>';
+      warnings.forEach(a => {
+        html += `<div class="alert-item warning">
+          <div class="alert-item-icon">${a.icon}</div>
+          <div class="alert-item-content">
+            <div class="alert-item-msg">${a.message}</div>
+            <div class="alert-item-detail">${a.detail}</div>
+          </div>
+        </div>`;
+      });
+    }
+
+    if (achievements.length > 0) {
+      html += '<div class="section-header" style="margin-top:24px"><h2 class="section-title">إنجازات</h2></div>';
+      achievements.forEach(a => {
+        html += `<div class="alert-item achievement">
+          <div class="alert-item-icon">${a.icon}</div>
+          <div class="alert-item-content">
+            <div class="alert-item-msg">${a.message}</div>
+            <div class="alert-item-detail">${a.detail}</div>
+          </div>
+        </div>`;
+      });
+    }
+
+    if (infos.length > 0) {
+      html += '<div class="section-header" style="margin-top:24px"><h2 class="section-title">معلومات</h2></div>';
+      infos.forEach(a => {
+        html += `<div class="alert-item info">
+          <div class="alert-item-icon">${a.icon}</div>
+          <div class="alert-item-content">
+            <div class="alert-item-msg">${a.message}</div>
+            <div class="alert-item-detail">${a.detail}</div>
+          </div>
+        </div>`;
+      });
+    }
+
+    container.innerHTML = html;
+  }
+
+  // ==================== لوحة التحكم (Admin) ====================
+  renderAdmin() {
+    const container = document.getElementById('view-admin');
+    const adminData = JSON.parse(localStorage.getItem('baraa_admin') || '{}');
+
+    let html = '';
+
+    // إشعار
+    html += `<div class="admin-notice">⚠️ التعديلات هنا تُحفظ في المتصفح المحلي فقط ولا تؤثر على مصدر البيانات الأصلي (Google Sheets).</div>`;
+
+    // ==================== إدارة المستهدفات ====================
+    html += `
+      <div class="admin-section">
+        <div class="admin-title">🎯 إدارة المستهدفات</div>
+        <table class="admin-table">
+          <thead>
+            <tr>
+              <th>المرحلة</th>
+              ${CONFIG.semesters.map(s => `<th>${s.label}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+    `;
+    for (const [stageName, stageConf] of Object.entries(CONFIG.stages)) {
+      html += `<tr><td style="font-weight:600">${stageConf.label}</td>`;
+      CONFIG.semesters.forEach(sem => {
+        const currentVal = this._getAdminTarget(stageName, sem.id);
+        html += `<td><input type="number" min="0" value="${currentVal}"
+          data-stage="${stageName}" data-sem="${sem.id}"
+          onchange="app._setAdminTarget('${stageName}', '${sem.id}', this.value)"></td>`;
+      });
+      html += '</tr>';
+    }
+    html += `
+          </tbody>
+        </table>
+        <div class="admin-actions">
+          <button class="admin-btn primary" onclick="app._saveAdminTargets()">حفظ المستهدفات</button>
+          <button class="admin-btn outline" onclick="app._resetAdminTargets()">استعادة الافتراضي</button>
+        </div>
+      </div>
+    `;
+
+    // ==================== إدارة الفرق ====================
+    html += `
+      <div class="admin-section">
+        <div class="admin-title">👥 إدارة الفرق</div>
+    `;
+    for (const [stageName, stageConf] of Object.entries(CONFIG.stages)) {
+      const teams = CONFIG.teams[stageName] || [];
+      html += `
+        <div style="margin-bottom:16px">
+          <div style="font-weight:600;margin-bottom:8px">${stageConf.label}</div>
+          <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:8px">
+            ${teams.map(t => `<span class="admin-tag">${t} <span class="remove-tag" onclick="app._removeTeam('${stageName}', '${t}')">×</span></span>`).join('')}
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <input type="text" id="new-team-${stageName}" placeholder="اسم الفريق الجديد"
+              style="padding:8px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);font-family:inherit;font-size:0.85rem;flex:1;max-width:240px">
+            <button class="admin-btn success" onclick="app._addTeam('${stageName}')">إضافة</button>
+          </div>
+        </div>
+      `;
+    }
+    html += '</div>';
+
+    // ==================== إدارة الفصول الدراسية ====================
+    html += `
+      <div class="admin-section">
+        <div class="admin-title">📅 الفصول الدراسية</div>
+        <table class="admin-table">
+          <thead>
+            <tr><th>الفصل</th><th>بداية (ميلادي)</th><th>نهاية (ميلادي)</th><th>الحالة</th></tr>
+          </thead>
+          <tbody>
+    `;
+    const curSem = this.engine.getCurrentSemesterId();
+    CONFIG.semesters.forEach(sem => {
+      const isCurrent = sem.id === curSem;
+      html += `
+        <tr${isCurrent ? ' style="background:#e8f5e9"' : ''}>
+          <td style="font-weight:600">${sem.label}</td>
+          <td>${sem.startGreg}</td>
+          <td>${sem.endGreg}</td>
+          <td>${isCurrent ? '<span style="color:var(--accent);font-weight:600">● الحالي</span>' : ''}</td>
+        </tr>
+      `;
+    });
+    html += '</tbody></table></div>';
+
+    // ==================== تصدير/استيراد الإعدادات ====================
+    html += `
+      <div class="admin-section">
+        <div class="admin-title">💾 النسخ الاحتياطي</div>
+        <div class="admin-actions">
+          <button class="admin-btn primary" onclick="app._exportSettings()">📤 تصدير الإعدادات</button>
+          <button class="admin-btn outline" onclick="document.getElementById('import-settings').click()">📥 استيراد الإعدادات</button>
+          <input type="file" id="import-settings" accept=".json" style="display:none" onchange="app._importSettings(this)">
+          <button class="admin-btn danger" onclick="app._clearAllSettings()">🗑 مسح جميع الإعدادات المحلية</button>
+        </div>
+      </div>
+    `;
+
+    container.innerHTML = html;
+  }
+
+  // --- Admin helpers ---
+  _getAdminTarget(stage, semId) {
+    const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
+    if (overrides[stage] && overrides[stage][semId] !== undefined) return overrides[stage][semId];
+    return CONFIG.targets[stage]?.[semId] || 0;
+  }
+
+  _setAdminTarget(stage, semId, value) {
+    const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
+    if (!overrides[stage]) overrides[stage] = {};
+    overrides[stage][semId] = parseInt(value) || 0;
+    localStorage.setItem('baraa_targets', JSON.stringify(overrides));
+  }
+
+  _saveAdminTargets() {
+    // تطبيق على CONFIG
+    const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
+    for (const [stage, sems] of Object.entries(overrides)) {
+      if (!CONFIG.targets[stage]) CONFIG.targets[stage] = {};
+      for (const [semId, val] of Object.entries(sems)) {
+        CONFIG.targets[stage][semId] = val;
+      }
+    }
+    this.renderCurrentView();
+    this.showToast('تم حفظ المستهدفات');
+  }
+
+  _resetAdminTargets() {
+    localStorage.removeItem('baraa_targets');
+    this.showToast('تمت استعادة المستهدفات الافتراضية');
+    this.renderAdmin();
+  }
+
+  _addTeam(stage) {
+    const input = document.getElementById(`new-team-${stage}`);
+    const name = input?.value.trim();
+    if (!name) return;
+    if (!CONFIG.teams[stage]) CONFIG.teams[stage] = [];
+    if (CONFIG.teams[stage].includes(name)) { this.showToast('الفريق موجود مسبقاً'); return; }
+    CONFIG.teams[stage].push(name);
+    this._saveTeamsToLocal();
+    this.renderAdmin();
+    this.showToast(`تمت إضافة فريق "${name}"`);
+  }
+
+  _removeTeam(stage, name) {
+    if (!CONFIG.teams[stage]) return;
+    CONFIG.teams[stage] = CONFIG.teams[stage].filter(t => t !== name);
+    this._saveTeamsToLocal();
+    this.renderAdmin();
+    this.showToast(`تمت إزالة فريق "${name}"`);
+  }
+
+  _saveTeamsToLocal() {
+    localStorage.setItem('baraa_teams', JSON.stringify(CONFIG.teams));
+  }
+
+  _exportSettings() {
+    const settings = {
+      targets: JSON.parse(localStorage.getItem('baraa_targets') || '{}'),
+      teams: CONFIG.teams,
+      exportDate: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `baraa-settings-${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    this.showToast('تم تصدير الإعدادات');
+  }
+
+  _importSettings(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const settings = JSON.parse(e.target.result);
+        if (settings.targets) localStorage.setItem('baraa_targets', JSON.stringify(settings.targets));
+        if (settings.teams) {
+          CONFIG.teams = settings.teams;
+          localStorage.setItem('baraa_teams', JSON.stringify(settings.teams));
+        }
+        this.renderAdmin();
+        this.showToast('تم استيراد الإعدادات');
+      } catch (err) {
+        this.showToast('خطأ في قراءة الملف');
+      }
+    };
+    reader.readAsText(file);
+    input.value = '';
+  }
+
+  _clearAllSettings() {
+    localStorage.removeItem('baraa_targets');
+    localStorage.removeItem('baraa_teams');
+    localStorage.removeItem('baraa_recent_searches');
+    this.showToast('تم مسح جميع الإعدادات المحلية');
+    this.renderAdmin();
+  }
+
+  // ==================== تصدير PDF ====================
+  exportPDF() {
+    try {
+      const { jsPDF } = window.jspdf;
+      if (!jsPDF) { this.showToast('مكتبة PDF غير متوفرة'); return; }
+
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const stats = this.engine.getOverallStats(this.getCurrentFilter());
+      const pageW = 210, margin = 15;
+      let y = 20;
+
+      // العنوان
+      doc.setFontSize(20);
+      doc.setTextColor(61, 122, 98);
+      doc.text(CONFIG.projectName, pageW / 2, y, { align: 'center' });
+      y += 10;
+
+      doc.setFontSize(10);
+      doc.setTextColor(100);
+      doc.text(`${new Date().toLocaleDateString('ar-SA')} :تاريخ التقرير`, pageW - margin, y, { align: 'right' });
+      y += 12;
+
+      // الإحصائيات العامة
+      doc.setFontSize(14);
+      doc.setTextColor(61, 122, 98);
+      doc.text('نظرة عامة', pageW - margin, y, { align: 'right' });
+      y += 8;
+
+      doc.setFontSize(10);
+      doc.setTextColor(50);
+      const qualScore = stats.qualityDetails ? stats.qualityDetails.overall.toFixed(1) : '-';
+      const overviewData = [
+        [`${stats.totalExecutions}`, 'إجمالي التنفيذ'],
+        [`${stats.totalBeneficiaries}`, 'المستفيدون'],
+        [`${qualScore}/10`, 'متوسط الجودة'],
+        [`${stats.activeTeams}`, 'الفرق النشطة'],
+      ];
+      overviewData.forEach(([val, label]) => {
+        doc.text(`${val} :${label}`, pageW - margin, y, { align: 'right' });
+        y += 6;
+      });
+      y += 8;
+
+      // جدول المراحل
+      for (const [stageName, stageConf] of Object.entries(CONFIG.stages)) {
+        const s = stats.stageStats[stageName];
+        if (!s) continue;
+
+        if (y > 250) { doc.addPage(); y = 20; }
+
+        doc.setFontSize(12);
+        doc.setTextColor(61, 122, 98);
+        doc.text(`فرق ${stageConf.label}`, pageW - margin, y, { align: 'right' });
+        y += 8;
+
+        doc.setFontSize(8);
+        doc.setTextColor(80);
+        const headers = ['الجودة', 'المستفيدون', 'الإنجاز%', 'المستهدف', 'المنفذ', 'الفريق'];
+        const colW = (pageW - 2 * margin) / headers.length;
+
+        // رأس الجدول
+        doc.setFillColor(61, 122, 98);
+        doc.rect(margin, y - 3, pageW - 2 * margin, 7, 'F');
+        doc.setTextColor(255);
+        headers.forEach((h, i) => {
+          doc.text(h, pageW - margin - i * colW - colW / 2, y + 1, { align: 'center' });
+        });
+        y += 7;
+        doc.setTextColor(50);
+
+        s.teams.sort((a, b) => b.completionRate - a.completionRate).forEach((team, idx) => {
+          if (y > 275) { doc.addPage(); y = 20; }
+          if (idx % 2 === 0) {
+            doc.setFillColor(245, 250, 247);
+            doc.rect(margin, y - 3, pageW - 2 * margin, 6, 'F');
+          }
+          const row = [
+            team.qualityAvg !== null ? team.qualityAvg.toFixed(1) : '-',
+            `${team.beneficiaries}`,
+            `${team.completionRate.toFixed(0)}%`,
+            `${team.target || '-'}`,
+            `${team.executions}`,
+            team.name,
+          ];
+          row.forEach((val, i) => {
+            doc.text(val, pageW - margin - i * colW - colW / 2, y + 1, { align: 'center' });
+          });
+          y += 6;
+        });
+        y += 8;
+      }
+
+      // تذييل
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(7);
+        doc.setTextColor(150);
+        doc.text('مشروع بارع — جمعية الراحين — تم إنشاؤه تلقائياً', pageW / 2, 290, { align: 'center' });
+        doc.text(`${i}/${totalPages}`, margin, 290);
+      }
+
+      doc.save(`تقرير-بارع-${new Date().toISOString().split('T')[0]}.pdf`);
+      this.showToast('تم تصدير التقرير بنجاح');
+    } catch (err) {
+      console.error('PDF export error:', err);
+      this.showToast('خطأ في تصدير التقرير');
+    }
+  }
+
+  // ==================== احتفالات ====================
+  showCelebration(message, icon = '🎉') {
+    // كونفيتي
+    const overlay = document.createElement('div');
+    overlay.className = 'celebration-overlay';
+    document.body.appendChild(overlay);
+
+    const colors = ['#4A7EA5', '#6FA96C', '#E8A838', '#D95F5F', '#5E9B8A', '#8FCA8C'];
+    for (let i = 0; i < 60; i++) {
+      const piece = document.createElement('div');
+      piece.className = 'confetti-piece';
+      piece.style.left = Math.random() * 100 + '%';
+      piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+      piece.style.animationDelay = Math.random() * 1 + 's';
+      piece.style.animationDuration = (2 + Math.random() * 2) + 's';
+      overlay.appendChild(piece);
+    }
+
+    // رسالة
+    const toast = document.createElement('div');
+    toast.className = 'milestone-toast';
+    toast.innerHTML = `
+      <div class="milestone-icon">${icon}</div>
+      <div class="milestone-text">${message}</div>
+    `;
+    document.body.appendChild(toast);
+
+    setTimeout(() => { overlay.remove(); toast.remove(); }, 4000);
   }
 
   destroyChart(id) {

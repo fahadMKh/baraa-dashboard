@@ -483,4 +483,310 @@ class DataEngine {
     });
     return result;
   }
+
+  /**
+   * بيانات خريطة النشاط (آخر 12 أسبوع)
+   */
+  getActivityHeatmap(filter = {}) {
+    const col = CONFIG.executionColumns;
+    const execRows = this.filterExecution({ filter });
+    const weeks = 12;
+    const days = weeks * 7;
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    const counts = {};
+    execRows.forEach(row => {
+      const dateStr = this.getDateFromTimestamp(row[col.timestamp]);
+      if (!dateStr) return;
+      const [y, m, d] = dateStr.split('/').map(Number);
+      const date = new Date(y, m - 1, d);
+      const key = `${y}-${String(m).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+
+    const cells = [];
+    for (let i = days - 1; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(d.getDate() - i);
+      const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      const count = counts[key] || 0;
+      let level = 0;
+      if (count >= 8) level = 4;
+      else if (count >= 5) level = 3;
+      else if (count >= 2) level = 2;
+      else if (count >= 1) level = 1;
+      cells.push({ date: key, count, level, dayOfWeek: d.getDay() });
+    }
+    return cells;
+  }
+
+  /**
+   * النشاط الأسبوعي (آخر 8 أسابيع)
+   */
+  getWeeklyProgress(filter = {}) {
+    const col = CONFIG.executionColumns;
+    const execRows = this.filterExecution({ filter });
+    const weeks = 8;
+    const today = new Date();
+    today.setHours(0,0,0,0);
+
+    const weekData = [];
+    for (let w = weeks - 1; w >= 0; w--) {
+      const weekEnd = new Date(today);
+      weekEnd.setDate(weekEnd.getDate() - w * 7);
+      const weekStart = new Date(weekEnd);
+      weekStart.setDate(weekStart.getDate() - 6);
+
+      let count = 0;
+      execRows.forEach(row => {
+        const dateStr = this.getDateFromTimestamp(row[col.timestamp]);
+        if (!dateStr) return;
+        const [y, m, d] = dateStr.split('/').map(Number);
+        const date = new Date(y, m - 1, d);
+        if (date >= weekStart && date <= weekEnd) count++;
+      });
+
+      const label = `${weekStart.getDate()}/${weekStart.getMonth()+1}`;
+      weekData.push({ label, count, weekStart, weekEnd });
+    }
+    return weekData;
+  }
+
+  /**
+   * توزيع وسائل التنفيذ
+   */
+  getMethodDistribution(filter = {}) {
+    const col = CONFIG.executionColumns;
+    const execRows = this.filterExecution({ filter });
+    const methods = {};
+    execRows.forEach(row => {
+      const method = row[col.method] || 'غير محدد';
+      methods[method] = (methods[method] || 0) + 1;
+    });
+    return Object.entries(methods)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+  }
+
+  /**
+   * توقعات إكمال الفرق
+   */
+  getProjections(filter = {}) {
+    const { semesters = [] } = filter;
+    const col = CONFIG.executionColumns;
+    const projections = [];
+
+    for (const [stageName, stageTeams] of Object.entries(CONFIG.teams)) {
+      const targetMap = CONFIG.targets[stageName] || {};
+      const target = semesters.length === 0
+        ? Object.values(targetMap).reduce((s, v) => s + v, 0)
+        : semesters.reduce((sum, semId) => sum + (targetMap[semId] || 0), 0);
+
+      for (const teamName of stageTeams) {
+        const teamRows = this.filterExecution({ stage: stageName, team: teamName, filter });
+        const executed = teamRows.length;
+
+        if (executed >= target && target > 0) {
+          projections.push({ team: teamName, stage: stageName, executed, target, status: 'completed', projectedDate: null, daysRemaining: 0 });
+          continue;
+        }
+
+        if (executed === 0 || target === 0) {
+          projections.push({ team: teamName, stage: stageName, executed, target, status: 'no-data', projectedDate: null, daysRemaining: null });
+          continue;
+        }
+
+        // حساب معدل التنفيذ
+        const dates = teamRows.map(r => {
+          const ds = this.getDateFromTimestamp(r[col.timestamp]);
+          if (!ds) return null;
+          const [y, m, d] = ds.split('/').map(Number);
+          return new Date(y, m - 1, d);
+        }).filter(Boolean).sort((a, b) => a - b);
+
+        if (dates.length < 2) {
+          projections.push({ team: teamName, stage: stageName, executed, target, status: 'insufficient', projectedDate: null, daysRemaining: null });
+          continue;
+        }
+
+        const firstDate = dates[0];
+        const lastDate = dates[dates.length - 1];
+        const daySpan = Math.max(1, (lastDate - firstDate) / (1000 * 60 * 60 * 24));
+        const rate = executed / daySpan;
+        const remaining = target - executed;
+        const daysNeeded = Math.ceil(remaining / rate);
+
+        const projectedDate = new Date();
+        projectedDate.setDate(projectedDate.getDate() + daysNeeded);
+
+        projections.push({
+          team: teamName,
+          stage: stageName,
+          executed,
+          target,
+          status: daysNeeded > 180 ? 'behind' : 'on-track',
+          projectedDate,
+          daysRemaining: daysNeeded,
+          rate: rate.toFixed(2),
+        });
+      }
+    }
+    return projections;
+  }
+
+  /**
+   * تحليل أنماط الجودة
+   */
+  getQualityPatterns(filter = {}) {
+    const qcol = CONFIG.qualityColumns;
+    const qualRows = this.filterQuality({ filter });
+
+    // تحليل حسب الفترة
+    const byPeriod = {};
+    qualRows.forEach(row => {
+      const period = row[qcol.visitPeriod] || 'غير محدد';
+      if (!byPeriod[period]) byPeriod[period] = { scores: [], count: 0 };
+      const avg = [
+        parseFloat(row[qcol.participantEngagement]) || 0,
+        parseFloat(row[qcol.executorComprehension]) || 0,
+        parseFloat(row[qcol.contentCompliance]) || 0,
+        parseFloat(row[qcol.evalCompliance]) || 0,
+      ].reduce((a, b) => a + b, 0) / 4;
+      byPeriod[period].scores.push(avg);
+      byPeriod[period].count++;
+    });
+
+    const periodAnalysis = Object.entries(byPeriod).map(([period, data]) => ({
+      period,
+      avg: data.scores.reduce((a, b) => a + b, 0) / data.scores.length,
+      count: data.count,
+    }));
+
+    // أسباب النقص الأكثر شيوعاً
+    const deficiencies = {};
+    qualRows.forEach(row => {
+      const reason = row[qcol.deficiencyReasons];
+      if (reason && reason.trim()) {
+        deficiencies[reason.trim()] = (deficiencies[reason.trim()] || 0) + 1;
+      }
+    });
+
+    const topDeficiencies = Object.entries(deficiencies)
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 5);
+
+    return { periodAnalysis, topDeficiencies };
+  }
+
+  /**
+   * التنبيهات الذكية
+   */
+  getSmartAlerts(filter = {}) {
+    const stats = this.getOverallStats(filter);
+    const alerts = [];
+
+    for (const [stageName, stageData] of Object.entries(stats.stageStats)) {
+      const stageLabel = CONFIG.stages[stageName]?.label || stageName;
+
+      for (const team of stageData.teams) {
+        // تأخر عن الجدول
+        if (team.target > 0 && team.completionRate < 30 && team.target > 0) {
+          alerts.push({
+            type: 'warning',
+            icon: '⚠️',
+            message: `فريق ${team.name} متأخر عن الجدول (${team.completionRate.toFixed(0)}%)`,
+            detail: stageLabel,
+            priority: 1,
+          });
+        }
+
+        // لا يوجد نشاط
+        if (team.executions === 0 && team.target > 0) {
+          alerts.push({
+            type: 'warning',
+            icon: '🔴',
+            message: `فريق ${team.name} لم يسجل أي تنفيذ`,
+            detail: stageLabel,
+            priority: 0,
+          });
+        }
+
+        // جودة منخفضة
+        if (team.qualityAvg !== null && team.qualityAvg < 6) {
+          alerts.push({
+            type: 'warning',
+            icon: '📉',
+            message: `جودة فريق ${team.name} منخفضة (${team.qualityAvg.toFixed(1)}/10)`,
+            detail: stageLabel,
+            priority: 2,
+          });
+        }
+
+        // إنجاز 100%
+        if (team.completionRate >= 100) {
+          alerts.push({
+            type: 'achievement',
+            icon: '🏆',
+            message: `فريق ${team.name} أكمل جميع البطاقات المستهدفة!`,
+            detail: stageLabel,
+            priority: 10,
+          });
+        }
+        // إنجاز 75%
+        else if (team.completionRate >= 75) {
+          alerts.push({
+            type: 'achievement',
+            icon: '🎯',
+            message: `فريق ${team.name} أنجز ${team.completionRate.toFixed(0)}% من المستهدف`,
+            detail: stageLabel,
+            priority: 8,
+          });
+        }
+        // إنجاز 50%
+        else if (team.completionRate >= 50) {
+          alerts.push({
+            type: 'info',
+            icon: '📊',
+            message: `فريق ${team.name} تجاوز نصف المستهدف (${team.completionRate.toFixed(0)}%)`,
+            detail: stageLabel,
+            priority: 5,
+          });
+        }
+
+        // جودة ممتازة
+        if (team.qualityAvg !== null && team.qualityAvg >= 9) {
+          alerts.push({
+            type: 'achievement',
+            icon: '🌟',
+            message: `فريق ${team.name} حقق جودة ممتازة (${team.qualityAvg.toFixed(1)}/10)`,
+            detail: stageLabel,
+            priority: 9,
+          });
+        }
+      }
+    }
+
+    return alerts.sort((a, b) => a.priority - b.priority);
+  }
+
+  /**
+   * مقارنة فصلين دراسيين
+   */
+  compareSemesters(semId1, semId2) {
+    const filter1 = { semesters: [semId1] };
+    const filter2 = { semesters: [semId2] };
+
+    const stats1 = this.getOverallStats(filter1);
+    const stats2 = this.getOverallStats(filter2);
+
+    const sem1 = CONFIG.semesters.find(s => s.id === semId1);
+    const sem2 = CONFIG.semesters.find(s => s.id === semId2);
+
+    return {
+      sem1: { id: semId1, label: sem1?.label || semId1, stats: stats1 },
+      sem2: { id: semId2, label: sem2?.label || semId2, stats: stats2 },
+    };
+  }
 }

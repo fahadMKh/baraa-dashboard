@@ -12,6 +12,9 @@
   <!-- Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
 
+  <!-- jsPDF -->
+  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+
   <!-- الأنماط -->
   <link rel="stylesheet" href="styles.css">
 </head>
@@ -80,6 +83,9 @@
         </div>
       </div>
 
+      <button class="btn-export" onclick="app.exportPDF()">
+        <span>📄</span> تصدير PDF
+      </button>
       <button class="btn-refresh" onclick="app.refresh()">
         <span class="refresh-icon">↺</span>
         تحديث
@@ -102,6 +108,21 @@
     <div class="nav-tab" data-view="quality">
       <span>⭐</span> الجودة
     </div>
+    <div class="nav-tab" data-view="analytics">
+      <span>📈</span> التحليلات
+    </div>
+    <div class="nav-tab" data-view="comparison">
+      <span>🔄</span> المقارنة
+    </div>
+    <div class="nav-tab" data-view="search">
+      <span>🔍</span> البحث
+    </div>
+    <div class="nav-tab" data-view="alerts">
+      <span>🔔</span> التنبيهات
+    </div>
+    <div class="nav-tab" data-view="admin">
+      <span>⚙️</span> لوحة التحكم
+    </div>
   </nav>
 
   <!-- المحتوى الرئيسي -->
@@ -120,6 +141,21 @@
 
     <!-- تفاصيل الفريق -->
     <div id="view-team-detail" class="view"></div>
+
+    <!-- التحليلات -->
+    <div id="view-analytics" class="view"></div>
+
+    <!-- المقارنة -->
+    <div id="view-comparison" class="view"></div>
+
+    <!-- البحث -->
+    <div id="view-search" class="view"></div>
+
+    <!-- التنبيهات -->
+    <div id="view-alerts" class="view"></div>
+
+    <!-- لوحة التحكم -->
+    <div id="view-admin" class="view"></div>
   </main>
 
   <!-- إشعار -->
