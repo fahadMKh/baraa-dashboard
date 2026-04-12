@@ -32,7 +32,7 @@ const CONFIG = {
       gid: '184007558',
       name: 'المستخدمون',
       // رابط Apps Script لإضافة/حذف المستخدمين في الشيت
-      scriptURL: 'https://script.google.com/macros/s/AKfycbzsAG4MjL8GNpqWxQD4LHt6NRciMFVrnQ0TWq2Gvl-0u_t6_KBSlzo5FgkPJ5tUvTROfg/exec',
+      scriptURL: 'https://script.google.com/macros/s/AKfycby5eLXWzkbFB5xlgKnWZcyV6cH9BUgjEmVKq81KsA5bJTeTTD9MohqQxgXmrC605pvubA/exec',
     },
   },
 
