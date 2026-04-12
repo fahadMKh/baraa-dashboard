@@ -60,7 +60,7 @@ enum AppConfig {
     // ==================== جدول المستخدمين الموحّد ====================
     // ضع هنا GID التبويب الذي أنشأته في Google Sheet للمستخدمين
     // الأعمدة: username | name | password(base64) | role | team
-    static let usersGID = "USERS_GID_HERE" // ← حدّث هذه القيمة
+    static let usersGID = "184007558"
     static let usersURL = "https://docs.google.com/spreadsheets/d/1vf5G2SaIHKGA4sAaGivYtgwDCWTm98fGHpyYslG-C08/export?format=csv&gid=\(usersGID)"
 
     static let semesters: [Semester] = [

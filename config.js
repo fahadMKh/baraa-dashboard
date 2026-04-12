@@ -29,7 +29,7 @@ const CONFIG = {
     // team = اسم الفريق (فارغ للمشرف)
     users: {
       id: '1vf5G2SaIHKGA4sAaGivYtgwDCWTm98fGHpyYslG-C08',
-      gid: 'USERS_GID_HERE', // ← ضع هنا GID التبويب الجديد
+      gid: '184007558',
       name: 'المستخدمون',
     },
   },
