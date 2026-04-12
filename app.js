@@ -2420,24 +2420,20 @@ class App {
     const encodedPassword = btoa(password);
     const newUser = { name, username, password: encodedPassword, role, team: team || null };
 
-    // إرسال للشيت عبر Apps Script
+    // إرسال للشيت عبر Apps Script (GET لتجنب مشاكل CORS)
     const scriptURL = CONFIG.sheets.users?.scriptURL;
     if (scriptURL) {
       try {
         this.showToast('جارٍ حفظ المستخدم...');
-        await fetch(scriptURL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'add',
-            username,
-            name,
-            password: encodedPassword,
-            role,
-            team: team || '',
-          }),
+        const params = new URLSearchParams({
+          action: 'add',
+          username,
+          name,
+          password: encodedPassword,
+          role,
+          team: team || '',
         });
+        await fetch(`${scriptURL}?${params}`, { mode: 'no-cors' });
         // تحديث القائمة محلياً وفي الذاكرة
         this._sharedUsers.push(newUser);
         localStorage.setItem('baraa_users', JSON.stringify(this._sharedUsers));
@@ -2467,20 +2463,16 @@ class App {
 
     const removed = users[index];
 
-    // حذف من الشيت عبر Apps Script
+    // حذف من الشيت عبر Apps Script (GET)
     const scriptURL = CONFIG.sheets.users?.scriptURL;
     if (scriptURL) {
       try {
         this.showToast('جارٍ حذف المستخدم...');
-        await fetch(scriptURL, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'remove',
-            username: removed.username,
-          }),
+        const params = new URLSearchParams({
+          action: 'remove',
+          username: removed.username,
         });
+        await fetch(`${scriptURL}?${params}`, { mode: 'no-cors' });
       } catch (err) {
         console.error('خطأ في حذف المستخدم من الشيت:', err);
       }
