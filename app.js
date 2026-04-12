@@ -2392,7 +2392,7 @@ class App {
     if (group) group.style.display = (role === 'leader' || role === 'executor') ? '' : 'none';
   }
 
-  _addUser() {
+  async _addUser() {
     const name = document.getElementById('user-name')?.value.trim();
     const username = document.getElementById('user-username')?.value.trim();
     const password = document.getElementById('user-password')?.value;
@@ -2417,38 +2417,80 @@ class App {
       return;
     }
 
-    // تشفير بسيط لكلمة المرور (base64 — ليس آمناً بالكامل لكنه كافٍ للعرض)
-    const newUser = { name, username, password: btoa(password), role, team: team || null };
+    const encodedPassword = btoa(password);
+    const newUser = { name, username, password: encodedPassword, role, team: team || null };
 
-    // حفظ محلياً
-    const localUsers = JSON.parse(localStorage.getItem('baraa_users') || '[]');
-    localUsers.push(newUser);
-    localStorage.setItem('baraa_users', JSON.stringify(localUsers));
-
-    // تحديث القائمة الموحّدة في الذاكرة
-    this._sharedUsers = localUsers;
-
-    this.renderAdmin();
-
-    if (this._usersSource === 'sheet') {
-      this.showToast(`تم إنشاء "${name}" محلياً — أضفه أيضاً في Google Sheet ليعمل على التطبيق`);
+    // إرسال للشيت عبر Apps Script
+    const scriptURL = CONFIG.sheets.users?.scriptURL;
+    if (scriptURL) {
+      try {
+        this.showToast('جارٍ حفظ المستخدم...');
+        await fetch(scriptURL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'add',
+            username,
+            name,
+            password: encodedPassword,
+            role,
+            team: team || '',
+          }),
+        });
+        // تحديث القائمة محلياً وفي الذاكرة
+        this._sharedUsers.push(newUser);
+        localStorage.setItem('baraa_users', JSON.stringify(this._sharedUsers));
+        this._usersSource = 'sheet';
+        this.renderAdmin();
+        this.showToast(`تم إنشاء المستخدم "${name}" ✅`);
+      } catch (err) {
+        console.error('خطأ في حفظ المستخدم:', err);
+        this.showToast('خطأ في الحفظ — تحقق من الاتصال');
+      }
     } else {
+      // حفظ محلي فقط
+      const localUsers = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+      localUsers.push(newUser);
+      localStorage.setItem('baraa_users', JSON.stringify(localUsers));
+      this._sharedUsers = localUsers;
+      this.renderAdmin();
       this.showToast(`تم إنشاء المستخدم "${name}"`);
     }
   }
 
-  _removeUser(index) {
-    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+  async _removeUser(index) {
+    const users = this._sharedUsers.length > 0
+      ? [...this._sharedUsers]
+      : JSON.parse(localStorage.getItem('baraa_users') || '[]');
     if (!confirm(`حذف المستخدم "${users[index]?.name}"؟`)) return;
+
+    const removed = users[index];
+
+    // حذف من الشيت عبر Apps Script
+    const scriptURL = CONFIG.sheets.users?.scriptURL;
+    if (scriptURL) {
+      try {
+        this.showToast('جارٍ حذف المستخدم...');
+        await fetch(scriptURL, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'remove',
+            username: removed.username,
+          }),
+        });
+      } catch (err) {
+        console.error('خطأ في حذف المستخدم من الشيت:', err);
+      }
+    }
+
     users.splice(index, 1);
     localStorage.setItem('baraa_users', JSON.stringify(users));
     this._sharedUsers = users;
     this.renderAdmin();
-    if (this._usersSource === 'sheet') {
-      this.showToast('تم حذف المستخدم محلياً — احذفه أيضاً من Google Sheet');
-    } else {
-      this.showToast('تم حذف المستخدم');
-    }
+    this.showToast('تم حذف المستخدم ✅');
   }
 
   _showLoginDialog() {
