@@ -2385,6 +2385,19 @@ class App {
     this.showToast('تم حذف الفصل');
   }
 
+  // --- اتصال Apps Script ---
+  /** إرسال طلب GET لـ Apps Script بدون مشاكل CORS */
+  _callScript(url) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(true);
+      img.onerror = () => resolve(true); // Apps Script لا يرجع صورة، لكن الطلب يُنفَّذ
+      img.src = url;
+      // timeout احتياطي
+      setTimeout(() => resolve(true), 5000);
+    });
+  }
+
   // --- نظام الصلاحيات ---
   _toggleTeamField() {
     const role = document.getElementById('user-role')?.value;
@@ -2420,30 +2433,26 @@ class App {
     const encodedPassword = btoa(password);
     const newUser = { name, username, password: encodedPassword, role, team: team || null };
 
-    // إرسال للشيت عبر Apps Script (GET لتجنب مشاكل CORS)
+    // إرسال للشيت عبر Apps Script
     const scriptURL = CONFIG.sheets.users?.scriptURL;
     if (scriptURL) {
-      try {
-        this.showToast('جارٍ حفظ المستخدم...');
-        const params = new URLSearchParams({
-          action: 'add',
-          username,
-          name,
-          password: encodedPassword,
-          role,
-          team: team || '',
-        });
-        await fetch(`${scriptURL}?${params}`, { mode: 'no-cors' });
-        // تحديث القائمة محلياً وفي الذاكرة
-        this._sharedUsers.push(newUser);
-        localStorage.setItem('baraa_users', JSON.stringify(this._sharedUsers));
-        this._usersSource = 'sheet';
-        this.renderAdmin();
-        this.showToast(`تم إنشاء المستخدم "${name}" ✅`);
-      } catch (err) {
-        console.error('خطأ في حفظ المستخدم:', err);
-        this.showToast('خطأ في الحفظ — تحقق من الاتصال');
-      }
+      this.showToast('جارٍ حفظ المستخدم...');
+      const params = new URLSearchParams({
+        action: 'add',
+        username,
+        name,
+        password: encodedPassword,
+        role,
+        team: team || '',
+      });
+      // استخدام Image لتجنب مشاكل CORS مع Google Apps Script
+      await this._callScript(`${scriptURL}?${params}`);
+      // تحديث القائمة محلياً وفي الذاكرة
+      this._sharedUsers.push(newUser);
+      localStorage.setItem('baraa_users', JSON.stringify(this._sharedUsers));
+      this._usersSource = 'sheet';
+      this.renderAdmin();
+      this.showToast(`تم إنشاء المستخدم "${name}" ✅`);
     } else {
       // حفظ محلي فقط
       const localUsers = JSON.parse(localStorage.getItem('baraa_users') || '[]');
@@ -2463,19 +2472,15 @@ class App {
 
     const removed = users[index];
 
-    // حذف من الشيت عبر Apps Script (GET)
+    // حذف من الشيت عبر Apps Script
     const scriptURL = CONFIG.sheets.users?.scriptURL;
     if (scriptURL) {
-      try {
-        this.showToast('جارٍ حذف المستخدم...');
-        const params = new URLSearchParams({
-          action: 'remove',
-          username: removed.username,
-        });
-        await fetch(`${scriptURL}?${params}`, { mode: 'no-cors' });
-      } catch (err) {
-        console.error('خطأ في حذف المستخدم من الشيت:', err);
-      }
+      this.showToast('جارٍ حذف المستخدم...');
+      const params = new URLSearchParams({
+        action: 'remove',
+        username: removed.username,
+      });
+      await this._callScript(`${scriptURL}?${params}`);
     }
 
     users.splice(index, 1);
