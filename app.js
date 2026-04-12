@@ -15,6 +15,9 @@ class App {
     // نظام الصلاحيات
     this._currentUser = JSON.parse(localStorage.getItem('baraa_user') || 'null');
     this._adminTab = 'targets'; // targets | teams | semesters | roles | dataentry | backup
+    // قائمة المستخدمين الموحّدة (من Google Sheet + محلي)
+    this._sharedUsers = [];
+    this._usersSource = 'local'; // 'sheet' أو 'local'
   }
 
   /** كائن الفلتر الحالي لتمريره إلى محرك البيانات */
@@ -30,10 +33,40 @@ class App {
     this.showLoading(true);
     this._loadAdminSettings();
     try {
-      await this.engine.fetchAll();
-      // افتح على الفصل الدراسي الحالي تلقائياً
-      const curSem = this.engine.getCurrentSemesterId();
-      if (curSem) this.currentSemesters = new Set([curSem]);
+      // جلب البيانات والمستخدمين بالتوازي
+      const [, , sharedUsers] = await Promise.all([
+        this.engine.fetchAll().then(() => {
+          // افتح على الفصل الدراسي الحالي تلقائياً
+          const curSem = this.engine.getCurrentSemesterId();
+          if (curSem) this.currentSemesters = new Set([curSem]);
+        }),
+        Promise.resolve(), // placeholder
+        this.engine.fetchUsers(),
+      ]);
+
+      // --- توحيد قائمة المستخدمين ---
+      if (sharedUsers && sharedUsers.length > 0) {
+        this._sharedUsers = sharedUsers;
+        this._usersSource = 'sheet';
+        // مزامنة: حفظ نسخة محلية كاحتياطي
+        localStorage.setItem('baraa_users', JSON.stringify(sharedUsers));
+        console.log(`✅ تم تحميل ${sharedUsers.length} مستخدم من Google Sheet`);
+      } else {
+        // إذا فشل جلب المستخدمين من الشيت، استخدم النسخة المحلية
+        this._sharedUsers = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+        this._usersSource = 'local';
+        console.log('📦 يتم استخدام قائمة المستخدمين المحلية');
+      }
+
+      // تحقق أن الجلسة الحالية لا تزال صالحة
+      if (this._currentUser) {
+        const stillExists = this._sharedUsers.find(u => u.username === this._currentUser.username);
+        if (!stillExists) {
+          console.warn('⚠️ المستخدم الحالي غير موجود في القائمة الموحّدة - تسجيل الخروج');
+          this._logout();
+        }
+      }
+
       this.buildFilterUI();
       this.renderCurrentView();
       this.setupAutoRefresh();
@@ -1904,13 +1937,23 @@ class App {
 
   // ---------- تبويب الصلاحيات ----------
   _renderAdminRoles() {
-    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    const users = this._sharedUsers.length > 0
+      ? this._sharedUsers
+      : JSON.parse(localStorage.getItem('baraa_users') || '[]');
     const roleLabels = { admin: '🛡️ مشرف', leader: '👨‍💼 قائد فريق', executor: '🧑‍💻 منفذ' };
     const allTeams = Object.values(CONFIG.teams).flat();
 
+    const sourceIcon = this._usersSource === 'sheet' ? '🌐' : '💾';
+    const sourceLabel = this._usersSource === 'sheet' ? 'Google Sheet (موحّد مع التطبيق)' : 'محلي فقط';
+
     let html = `
       <div class="admin-section">
-        <div class="admin-title">🔐 نظام الصلاحيات</div>
+        <div class="admin-title">🔐 نظام الصلاحيات الموحّد</div>
+        <div class="admin-notice" style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+          <span style="font-size:1.2em">${sourceIcon}</span>
+          <strong>مصدر المستخدمين:</strong> ${sourceLabel}
+          ${this._usersSource === 'local' ? '<br><span style="color:var(--warning)">⚠️ لتوحيد الدخول مع تطبيق iOS: أنشئ تبويب "users" في Google Sheet ثم حدّث GID في config.js</span>' : ''}
+        </div>
         <div class="admin-notice">
           <strong>المشرف:</strong> يرى كل شيء + لوحة التحكم &nbsp;|&nbsp;
           <strong>قائد الفريق:</strong> يرى كل شيء ما عدا لوحة التحكم &nbsp;|&nbsp;
@@ -2211,7 +2254,7 @@ class App {
           </div>
           <div class="admin-input-group">
             <label>المستخدمين</label>
-            <input type="text" readonly value="${JSON.parse(localStorage.getItem('baraa_users') || '[]').length} مستخدم" style="background:var(--bg)">
+            <input type="text" readonly value="${this._sharedUsers.length || JSON.parse(localStorage.getItem('baraa_users') || '[]').length} مستخدم (${this._usersSource === 'sheet' ? 'موحّد' : 'محلي'})" style="background:var(--bg)">
           </div>
           <div class="admin-input-group">
             <label>الفصول المضافة</label>
@@ -2365,17 +2408,33 @@ class App {
       return;
     }
 
-    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
-    if (users.find(u => u.username === username)) {
+    // البحث في القائمة الموحّدة
+    const allUsers = this._sharedUsers.length > 0
+      ? this._sharedUsers
+      : JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    if (allUsers.find(u => u.username === username)) {
       this.showToast('اسم المستخدم موجود مسبقاً');
       return;
     }
 
     // تشفير بسيط لكلمة المرور (base64 — ليس آمناً بالكامل لكنه كافٍ للعرض)
-    users.push({ name, username, password: btoa(password), role, team: team || null });
-    localStorage.setItem('baraa_users', JSON.stringify(users));
+    const newUser = { name, username, password: btoa(password), role, team: team || null };
+
+    // حفظ محلياً
+    const localUsers = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    localUsers.push(newUser);
+    localStorage.setItem('baraa_users', JSON.stringify(localUsers));
+
+    // تحديث القائمة الموحّدة في الذاكرة
+    this._sharedUsers = localUsers;
+
     this.renderAdmin();
-    this.showToast(`تم إنشاء المستخدم "${name}"`);
+
+    if (this._usersSource === 'sheet') {
+      this.showToast(`تم إنشاء "${name}" محلياً — أضفه أيضاً في Google Sheet ليعمل على التطبيق`);
+    } else {
+      this.showToast(`تم إنشاء المستخدم "${name}"`);
+    }
   }
 
   _removeUser(index) {
@@ -2383,8 +2442,13 @@ class App {
     if (!confirm(`حذف المستخدم "${users[index]?.name}"؟`)) return;
     users.splice(index, 1);
     localStorage.setItem('baraa_users', JSON.stringify(users));
+    this._sharedUsers = users;
     this.renderAdmin();
-    this.showToast('تم حذف المستخدم');
+    if (this._usersSource === 'sheet') {
+      this.showToast('تم حذف المستخدم محلياً — احذفه أيضاً من Google Sheet');
+    } else {
+      this.showToast('تم حذف المستخدم');
+    }
   }
 
   _showLoginDialog() {
@@ -2393,14 +2457,18 @@ class App {
     const password = prompt('كلمة المرور:');
     if (!password) return;
 
-    const users = JSON.parse(localStorage.getItem('baraa_users') || '[]');
+    // البحث في القائمة الموحّدة (من الشيت أو المحلية)
+    const users = this._sharedUsers.length > 0
+      ? this._sharedUsers
+      : JSON.parse(localStorage.getItem('baraa_users') || '[]');
+
     const user = users.find(u => u.username === username && atob(u.password) === password);
 
     if (user) {
       this._currentUser = { name: user.name, role: user.role, team: user.team, username: user.username };
       localStorage.setItem('baraa_user', JSON.stringify(this._currentUser));
       this._applyRoleRestrictions();
-      this.showToast(`مرحباً ${user.name}`);
+      this.showToast(`مرحباً ${user.name} (${this._usersSource === 'sheet' ? 'موحّد' : 'محلي'})`);
       this.renderAdmin();
     } else {
       this.showToast('اسم المستخدم أو كلمة المرور غير صحيحة');

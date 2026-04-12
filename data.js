@@ -69,6 +69,33 @@ class DataEngine {
   }
 
   /**
+   * جلب قائمة المستخدمين من Google Sheet الموحّد
+   * يُرجع مصفوفة: [{ username, name, password, role, team }]
+   * في حال الفشل يُرجع null (استخدم القائمة المحلية كبديل)
+   */
+  async fetchUsers() {
+    const cfg = CONFIG.sheets.users;
+    if (!cfg || !cfg.id || !cfg.gid || cfg.gid === 'USERS_GID_HERE') {
+      console.warn('⚠️ لم يتم إعداد جدول المستخدمين الموحّد بعد');
+      return null;
+    }
+    try {
+      const rows = await this.fetchSheet(cfg.id, cfg.gid);
+      const cols = CONFIG.usersColumns;
+      return rows.map(row => ({
+        username: (row[cols.username] || '').trim(),
+        name:     (row[cols.name] || '').trim(),
+        password: (row[cols.password] || '').trim(),
+        role:     (row[cols.role] || 'executor').trim().toLowerCase(),
+        team:     (row[cols.team] || '').trim() || null,
+      })).filter(u => u.username && u.name);
+    } catch (err) {
+      console.error('خطأ في جلب المستخدمين:', err);
+      return null;
+    }
+  }
+
+  /**
    * تحويل ميلادي → هجري (Jean Meeus)
    * تصحيح +1 للتوافق مع تقويم أم القرى
    */

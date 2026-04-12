@@ -21,12 +21,30 @@ const CONFIG = {
       gid: '790680076',
       name: 'بيانات الجودة',
     },
-    // يمكن إضافة مصادر بيانات جديدة هنا:
-    // newSource: { id: '...', gid: '...', name: '...' },
+    // ==================== جدول المستخدمين الموحّد ====================
+    // أنشئ تبويباً (Sheet) جديداً في جدول التنفيذ أو أي جدول Google Sheets
+    // الأعمدة المطلوبة: username | name | password | role | team
+    // password = كلمة المرور بصيغة Base64 (btoa في JS أو base64 encode)
+    // role = admin / leader / executor
+    // team = اسم الفريق (فارغ للمشرف)
+    users: {
+      id: '1vf5G2SaIHKGA4sAaGivYtgwDCWTm98fGHpyYslG-C08',
+      gid: 'USERS_GID_HERE', // ← ضع هنا GID التبويب الجديد
+      name: 'المستخدمون',
+    },
   },
 
   // فترة تحديث البيانات التلقائي (بالدقائق) - 0 لإيقاف التحديث التلقائي
   autoRefreshMinutes: 30,
+
+  // ==================== أعمدة جدول المستخدمين ====================
+  usersColumns: {
+    username: 0,
+    name: 1,
+    password: 2,   // Base64
+    role: 3,       // admin / leader / executor
+    team: 4,       // اسم الفريق (فارغ للمشرف)
+  },
 
   // ==================== أعمدة جدول التنفيذ ====================
   executionColumns: {

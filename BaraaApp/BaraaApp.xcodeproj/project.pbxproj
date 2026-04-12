@@ -1,0 +1,430 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A5E3807B2F7D832B0090017E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A5E3807A2F7D832B0090017E /* Assets.xcassets */; };
+		AA000001 /* BaraaApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100001 /* BaraaApp.swift */; };
+		AA000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100002 /* ContentView.swift */; };
+		AA000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100003 /* Models.swift */; };
+		AA000004 /* AppConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100004 /* AppConfig.swift */; };
+		AA000005 /* DateUtils.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100005 /* DateUtils.swift */; };
+		AA000006 /* DataService.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100006 /* DataService.swift */; };
+		AA000007 /* GlassComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100007 /* GlassComponents.swift */; };
+		AA000008 /* Extensions.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100008 /* Extensions.swift */; };
+		AA000009 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100009 /* OverviewView.swift */; };
+		AA000010 /* StagesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100010 /* StagesView.swift */; };
+		AA000011 /* TeamsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100011 /* TeamsView.swift */; };
+		AA000012 /* TeamDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100012 /* TeamDetailView.swift */; };
+		AA000013 /* QualityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100013 /* QualityView.swift */; };
+		AA000015 /* DynamicIslandBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA100015 /* DynamicIslandBanner.swift */; };
+		BB000001 /* PDFExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100001 /* PDFExporter.swift */; };
+		BB000002 /* SmartAlerts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100002 /* SmartAlerts.swift */; };
+		BB000003 /* AnalyticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100003 /* AnalyticsView.swift */; };
+		BB000004 /* SemesterComparisonView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100004 /* SemesterComparisonView.swift */; };
+		BB000005 /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100005 /* SearchView.swift */; };
+		BB000006 /* AlertsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100006 /* AlertsView.swift */; };
+		BB000007 /* Celebrations.swift in Sources */ = {isa = PBXBuildFile; fileRef = BB100007 /* Celebrations.swift */; };
+		CC000001 /* AuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC100001 /* AuthService.swift */; };
+		CC000002 /* LoginView.swift in Sources */ = {isa = PBXBuildFile; fileRef = CC100002 /* LoginView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A5E3807A2F7D832B0090017E /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		AA100001 /* BaraaApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BaraaApp.swift; sourceTree = "<group>"; };
+		AA100002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		AA100003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		AA100004 /* AppConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppConfig.swift; sourceTree = "<group>"; };
+		AA100005 /* DateUtils.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DateUtils.swift; sourceTree = "<group>"; };
+		AA100006 /* DataService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DataService.swift; sourceTree = "<group>"; };
+		AA100007 /* GlassComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlassComponents.swift; sourceTree = "<group>"; };
+		AA100008 /* Extensions.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Extensions.swift; sourceTree = "<group>"; };
+		AA100009 /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
+		AA100010 /* StagesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StagesView.swift; sourceTree = "<group>"; };
+		AA100011 /* TeamsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamsView.swift; sourceTree = "<group>"; };
+		AA100012 /* TeamDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamDetailView.swift; sourceTree = "<group>"; };
+		AA100013 /* QualityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QualityView.swift; sourceTree = "<group>"; };
+		AA100014 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA100015 /* DynamicIslandBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DynamicIslandBanner.swift; sourceTree = "<group>"; };
+		AA200001 /* BaraaApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = BaraaApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BB100001 /* PDFExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PDFExporter.swift; sourceTree = "<group>"; };
+		BB100002 /* SmartAlerts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartAlerts.swift; sourceTree = "<group>"; };
+		BB100003 /* AnalyticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnalyticsView.swift; sourceTree = "<group>"; };
+		BB100004 /* SemesterComparisonView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SemesterComparisonView.swift; sourceTree = "<group>"; };
+		BB100005 /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
+		BB100006 /* AlertsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlertsView.swift; sourceTree = "<group>"; };
+		BB100007 /* Celebrations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Celebrations.swift; sourceTree = "<group>"; };
+		CC100001 /* AuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AuthService.swift; sourceTree = "<group>"; };
+		CC100002 /* LoginView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA300001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA400001 = {
+			isa = PBXGroup;
+			children = (
+				A5E3807A2F7D832B0090017E /* Assets.xcassets */,
+				AA400002 /* BaraaApp */,
+				AA400010 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA400002 /* BaraaApp */ = {
+			isa = PBXGroup;
+			children = (
+				AA100001 /* BaraaApp.swift */,
+				AA100002 /* ContentView.swift */,
+				AA100014 /* Info.plist */,
+				AA400003 /* Models */,
+				AA400004 /* Services */,
+				AA400005 /* Components */,
+				AA400006 /* Views */,
+			);
+			path = BaraaApp;
+			sourceTree = "<group>";
+		};
+		AA400003 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				AA100003 /* Models.swift */,
+				AA100004 /* AppConfig.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		AA400004 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				AA100005 /* DateUtils.swift */,
+				AA100006 /* DataService.swift */,
+				BB100001 /* PDFExporter.swift */,
+				BB100002 /* SmartAlerts.swift */,
+				CC100001 /* AuthService.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		AA400005 /* Components */ = {
+			isa = PBXGroup;
+			children = (
+				AA100007 /* GlassComponents.swift */,
+				AA100008 /* Extensions.swift */,
+				AA100015 /* DynamicIslandBanner.swift */,
+				BB100007 /* Celebrations.swift */,
+			);
+			path = Components;
+			sourceTree = "<group>";
+		};
+		AA400006 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				AA100009 /* OverviewView.swift */,
+				AA100010 /* StagesView.swift */,
+				AA100011 /* TeamsView.swift */,
+				AA100012 /* TeamDetailView.swift */,
+				AA100013 /* QualityView.swift */,
+				BB100003 /* AnalyticsView.swift */,
+				BB100004 /* SemesterComparisonView.swift */,
+				BB100005 /* SearchView.swift */,
+				BB100006 /* AlertsView.swift */,
+				CC100002 /* LoginView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		AA400010 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA200001 /* BaraaApp.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA500001 /* BaraaApp */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA700001 /* Build configuration list for PBXNativeTarget "BaraaApp" */;
+			buildPhases = (
+				AA600001 /* Sources */,
+				AA300001 /* Frameworks */,
+				AA600002 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = BaraaApp;
+			productName = BaraaApp;
+			productReference = AA200001 /* BaraaApp.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA800001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2640;
+				LastUpgradeCheck = 1600;
+				TargetAttributes = {
+					AA500001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+				};
+			};
+			buildConfigurationList = AA700002 /* Build configuration list for PBXProject "BaraaApp" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ar;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				ar,
+				en,
+				Base,
+			);
+			mainGroup = AA400001;
+			productRefGroup = AA400010 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA500001 /* BaraaApp */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA600002 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A5E3807B2F7D832B0090017E /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA600001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA000001 /* BaraaApp.swift in Sources */,
+				AA000002 /* ContentView.swift in Sources */,
+				AA000003 /* Models.swift in Sources */,
+				AA000004 /* AppConfig.swift in Sources */,
+				AA000005 /* DateUtils.swift in Sources */,
+				AA000006 /* DataService.swift in Sources */,
+				AA000007 /* GlassComponents.swift in Sources */,
+				AA000008 /* Extensions.swift in Sources */,
+				AA000015 /* DynamicIslandBanner.swift in Sources */,
+				AA000009 /* OverviewView.swift in Sources */,
+				AA000010 /* StagesView.swift in Sources */,
+				AA000011 /* TeamsView.swift in Sources */,
+				AA000012 /* TeamDetailView.swift in Sources */,
+				AA000013 /* QualityView.swift in Sources */,
+				BB000001 /* PDFExporter.swift in Sources */,
+				BB000002 /* SmartAlerts.swift in Sources */,
+				BB000003 /* AnalyticsView.swift in Sources */,
+				BB000004 /* SemesterComparisonView.swift in Sources */,
+				BB000005 /* SearchView.swift in Sources */,
+				BB000006 /* AlertsView.swift in Sources */,
+				BB000007 /* Celebrations.swift in Sources */,
+			CC000001 /* AuthService.swift in Sources */,
+			CC000002 /* LoginView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA700010 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		AA700011 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		AA700020 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 379BY8ZAZ8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BaraaApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.baraa.app;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = APPL;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		AA700021 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_ASSET_PATHS = "";
+				DEVELOPMENT_TEAM = 379BY8ZAZ8;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = BaraaApp/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.baraa.app;
+				PRODUCT_BUNDLE_PACKAGE_TYPE = APPL;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA700001 /* Build configuration list for PBXNativeTarget "BaraaApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA700020 /* Debug */,
+				AA700021 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA700002 /* Build configuration list for PBXProject "BaraaApp" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA700010 /* Debug */,
+				AA700011 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = AA800001 /* Project object */;
+}
