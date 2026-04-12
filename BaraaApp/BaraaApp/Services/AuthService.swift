@@ -136,18 +136,37 @@ final class AuthService {
             // تخطي الصف الأول (العناوين)
             let dataRows = rows.count > 1 ? Array(rows.dropFirst()) : []
 
+            // تحويل الأدوار العربية للإنجليزية
+            let arabicRoleMap: [String: UserRole] = [
+                "مشرف": .admin,
+                "قائد فريق": .leader,
+                "قائد": .leader,
+                "منفذ": .executor,
+            ]
+
             var sharedUsers: [AppUser] = []
             for row in dataRows {
                 guard row.count >= 4 else { continue }
                 let username = row[0].trimmingCharacters(in: .whitespaces)
                 let name = row[1].trimmingCharacters(in: .whitespaces)
-                let passwordHash = row[2].trimmingCharacters(in: .whitespaces)
-                let roleStr = row[3].trimmingCharacters(in: .whitespaces).lowercased()
+                let rawPassword = row[2].trimmingCharacters(in: .whitespaces)
+                let roleStr = row[3].trimmingCharacters(in: .whitespaces)
                 let team = row.count > 4 ? row[4].trimmingCharacters(in: .whitespaces) : ""
 
                 guard !username.isEmpty, !name.isEmpty else { continue }
 
-                let role = UserRole(rawValue: roleStr) ?? .executor
+                // دعم الأدوار بالعربي والإنجليزي
+                let role = arabicRoleMap[roleStr]
+                    ?? UserRole(rawValue: roleStr.lowercased())
+                    ?? .executor
+
+                // إذا كلمة المرور غير مشفرة بـ Base64، شفّرها
+                let passwordHash: String
+                if Data(base64Encoded: rawPassword) != nil && rawPassword.count > 2 {
+                    passwordHash = rawPassword // مشفرة بالفعل
+                } else {
+                    passwordHash = Data(rawPassword.utf8).base64EncodedString() // شفّرها
+                }
                 let teamVal = team.isEmpty ? nil : team
                 let stage = teamVal.flatMap { t in
                     AppConfig.teams.first(where: { $0.value.contains(t) })?.key

@@ -82,13 +82,25 @@ class DataEngine {
     try {
       const rows = await this.fetchSheet(cfg.id, cfg.gid);
       const cols = CONFIG.usersColumns;
-      return rows.map(row => ({
-        username: (row[cols.username] || '').trim(),
-        name:     (row[cols.name] || '').trim(),
-        password: (row[cols.password] || '').trim(),
-        role:     (row[cols.role] || 'executor').trim().toLowerCase(),
-        team:     (row[cols.team] || '').trim() || null,
-      })).filter(u => u.username && u.name);
+      // تحويل الأدوار العربية للإنجليزية
+      const roleMap = { 'مشرف': 'admin', 'قائد فريق': 'leader', 'قائد': 'leader', 'منفذ': 'executor' };
+      return rows.map(row => {
+        let rawRole = (row[cols.role] || 'executor').trim().toLowerCase();
+        let role = roleMap[rawRole] || rawRole; // إذا عربي حوّله، وإلا استخدمه كما هو
+        if (!['admin', 'leader', 'executor'].includes(role)) role = 'executor';
+
+        let pwd = (row[cols.password] || '').trim();
+        // إذا كلمة المرور غير مشفرة بـ Base64، شفّرها
+        try { atob(pwd); } catch { pwd = btoa(pwd); }
+
+        return {
+          username: (row[cols.username] || '').trim(),
+          name:     (row[cols.name] || '').trim(),
+          password: pwd,
+          role,
+          team:     (row[cols.team] || '').trim() || null,
+        };
+      }).filter(u => u.username && u.name);
     } catch (err) {
       console.error('خطأ في جلب المستخدمين:', err);
       return null;
