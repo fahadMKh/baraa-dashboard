@@ -33,16 +33,25 @@ class App {
     this.showLoading(true);
     this._loadAdminSettings();
     try {
-      // جلب البيانات والمستخدمين بالتوازي
-      const [, , sharedUsers] = await Promise.all([
+      // جلب الإعدادات المشتركة + البيانات + المستخدمين بالتوازي
+      const [remoteConfig, , sharedUsers] = await Promise.all([
+        this.engine.fetchConfig(),
         this.engine.fetchAll().then(() => {
           // افتح على الفصل الدراسي الحالي تلقائياً
           const curSem = this.engine.getCurrentSemesterId();
           if (curSem) this.currentSemesters = new Set([curSem]);
         }),
-        Promise.resolve(), // placeholder
         this.engine.fetchUsers(),
       ]);
+
+      // تطبيق الإعدادات المشتركة من الشيت
+      if (remoteConfig) {
+        this._applyRemoteConfig(remoteConfig);
+      } else {
+        // لا توجد إعدادات في الشيت بعد — ارفع الإعدادات الحالية لتهيئة الشيت
+        console.log('📤 لا توجد إعدادات مشتركة، جارٍ رفع الإعدادات الحالية للشيت...');
+        this._saveConfigToSheet();
+      }
 
       // --- توحيد قائمة المستخدمين ---
       if (sharedUsers && sharedUsers.length > 0) {
@@ -78,6 +87,50 @@ class App {
     } finally {
       this.showLoading(false);
     }
+  }
+
+  /** تطبيق الإعدادات المشتركة من Google Sheet */
+  _applyRemoteConfig(config) {
+    if (config.teams && Object.keys(config.teams).length > 0) {
+      CONFIG.teams = config.teams;
+      localStorage.setItem('baraa_teams', JSON.stringify(CONFIG.teams));
+    }
+    if (config.targets && Object.keys(config.targets).length > 0) {
+      CONFIG.targets = config.targets;
+      localStorage.setItem('baraa_targets', JSON.stringify(CONFIG.targets));
+    }
+    if (config.semesters && config.semesters.length > 0) {
+      // استعادة كائنات التواريخ الهجرية
+      config.semesters.forEach(s => {
+        if (typeof s.startHijri === 'string') {
+          const p = s.startHijri.split('-').map(Number);
+          s.startHijri = { year: p[0] || 0, month: p[1] || 0, day: p[2] || 0 };
+        }
+        if (typeof s.endHijri === 'string') {
+          const p = s.endHijri.split('-').map(Number);
+          s.endHijri = { year: p[0] || 0, month: p[1] || 0, day: p[2] || 0 };
+        }
+      });
+      CONFIG.semesters = config.semesters;
+      localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
+    }
+    this._configSource = 'sheet';
+    console.log('✅ تم تطبيق الإعدادات المشتركة من Google Sheet');
+  }
+
+  /** حفظ الإعدادات الحالية في Google Sheet */
+  _saveConfigToSheet() {
+    const scriptURL = CONFIG.sheets.users?.scriptURL;
+    if (!scriptURL) return;
+    const configData = {
+      teams: CONFIG.teams,
+      targets: CONFIG.targets,
+      semesters: CONFIG.semesters,
+    };
+    const encoded = encodeURIComponent(JSON.stringify(configData));
+    const url = `${scriptURL}?action=saveConfig&data=${encoded}`;
+    this._callScript(url);
+    console.log('📤 جارٍ حفظ الإعدادات في Google Sheet...');
   }
 
   /** تحميل الإعدادات المحلية */
@@ -1149,8 +1202,16 @@ class App {
   }
 
   setupAutoRefresh() {
+    // إلغاء أي interval سابق لمنع التراكم
+    if (this._refreshInterval) {
+      clearInterval(this._refreshInterval);
+      this._refreshInterval = null;
+    }
     if (CONFIG.autoRefreshMinutes > 0) {
-      setInterval(() => this.refresh(), CONFIG.autoRefreshMinutes * 60 * 1000);
+      this._refreshInterval = setInterval(
+        () => this.refresh(),
+        CONFIG.autoRefreshMinutes * 60 * 1000
+      );
     }
   }
 
@@ -1204,7 +1265,7 @@ class App {
           ${dayLabels.map(d => `<span>${d}</span>`).join('')}
         </div>
         <div class="heatmap-grid">
-          ${heatmap.map(c => `<div class="heatmap-cell" data-level="${c.level}" data-tooltip="${c.date}: ${c.count} تنفيذ"></div>`).join('')}
+          ${heatmap.map(c => `<div class="heatmap-cell" data-level="${c.level}" data-tooltip="${c.hijriDate}: ${c.count} تنفيذ"></div>`).join('')}
         </div>
         <div class="heatmap-legend">
           <span>أقل</span>
@@ -1259,6 +1320,10 @@ class App {
       </div>
       <div class="projection-cards">
     `;
+    const jsDateToHijri = (d) => this.engine.hijriDisplayFromGregorian(
+      `${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`
+    );
+
     projections.forEach(p => {
       let statusClass = '', statusText = '', dateText = '';
       if (p.status === 'completed') {
@@ -1268,11 +1333,11 @@ class App {
       } else if (p.status === 'on-track') {
         statusClass = 'on-track';
         statusText = 'على المسار';
-        dateText = p.projectedDate ? p.projectedDate.toLocaleDateString('ar-SA') : '-';
+        dateText = p.projectedDate ? jsDateToHijri(p.projectedDate) : '-';
       } else if (p.status === 'behind') {
         statusClass = 'behind';
         statusText = 'متأخر';
-        dateText = p.projectedDate ? p.projectedDate.toLocaleDateString('ar-SA') : '-';
+        dateText = p.projectedDate ? jsDateToHijri(p.projectedDate) : '-';
       } else {
         statusClass = '';
         statusText = 'بيانات غير كافية';
@@ -1545,11 +1610,18 @@ class App {
     `;
 
     if (!query && recentSearches.length > 0) {
+      // تهريب HTML لمنع XSS عند حقن نص المستخدم داخل innerHTML
+      const esc = (str) => String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
       html += `
         <div class="recent-searches">
           <div class="recent-label">عمليات بحث سابقة</div>
           <div class="recent-tags">
-            ${recentSearches.map(s => `<button class="recent-tag" onclick="app._searchQuery='${s.replace(/'/g, "\\'")}'; app.renderSearch()">${s}</button>`).join('')}
+            ${recentSearches.map(s => `<button class="recent-tag" data-search="${esc(s)}">${esc(s)}</button>`).join('')}
           </div>
         </div>
       `;
@@ -1640,6 +1712,13 @@ class App {
     }
 
     container.innerHTML = html;
+    // ربط أزرار البحث السابق عبر event delegation (بديل آمن عن onclick inline)
+    container.querySelectorAll('.recent-tag').forEach(btn => {
+      btn.addEventListener('click', () => {
+        this._searchQuery = btn.getAttribute('data-search') || '';
+        this.renderSearch();
+      });
+    });
     // إبقاء التركيز على حقل البحث
     const input = document.getElementById('global-search-input');
     if (input) { input.focus(); input.selectionStart = input.selectionEnd = input.value.length; }
@@ -2292,6 +2371,7 @@ class App {
         CONFIG.targets[stage][semId] = val;
       }
     }
+    this._saveConfigToSheet();
     this.renderCurrentView();
     this.showToast('تم حفظ المستهدفات');
   }
@@ -2325,6 +2405,7 @@ class App {
 
   _saveTeamsToLocal() {
     localStorage.setItem('baraa_teams', JSON.stringify(CONFIG.teams));
+    this._saveConfigToSheet();
   }
 
   // --- الفصول الدراسية ---
@@ -2371,6 +2452,7 @@ class App {
       if (!CONFIG.targets[stage][id]) CONFIG.targets[stage][id] = 0;
     }
 
+    this._saveConfigToSheet();
     this.buildFilterUI();
     this.renderAdmin();
     this.showToast(`تمت إضافة ${newSem.label}`);
@@ -2380,6 +2462,7 @@ class App {
     if (!confirm(`حذف الفصل "${semId}"؟ هذا لن يحذف البيانات المرتبطة به.`)) return;
     CONFIG.semesters = CONFIG.semesters.filter(s => s.id !== semId);
     localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
+    this._saveConfigToSheet();
     this.buildFilterUI();
     this.renderAdmin();
     this.showToast('تم حذف الفصل');
@@ -2790,114 +2873,329 @@ class App {
     this.renderAdmin();
   }
 
-  // ==================== تصدير PDF ====================
-  exportPDF() {
+  // ==================== تصدير PDF (تقرير التقييم الأسبوعي لأداء الفرق) ====================
+  async exportPDF() {
     try {
-      const { jsPDF } = window.jspdf;
+      const { jsPDF } = window.jspdf || {};
       if (!jsPDF) { this.showToast('مكتبة PDF غير متوفرة'); return; }
+      if (typeof html2canvas === 'undefined') { this.showToast('مكتبة html2canvas غير متوفرة'); return; }
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-      const stats = this.engine.getOverallStats(this.getCurrentFilter());
-      const pageW = 210, margin = 15;
-      let y = 20;
+      this.showToast('جاري إنشاء التقرير…');
 
-      // العنوان
-      doc.setFontSize(20);
-      doc.setTextColor(61, 122, 98);
-      doc.text(CONFIG.projectName, pageW / 2, y, { align: 'center' });
-      y += 10;
+      // 1) تجهيز البيانات
+      const filter = this.getCurrentFilter();
+      const stats  = this.engine.getOverallStats(filter);
+      const semId  = (filter.semesters && filter.semesters[0]) || this.engine.getCurrentSemesterId();
+      const semester = CONFIG.semesters.find(s => s.id === semId);
+      const { elapsedWeeks, totalWeeks, ratio } = this._semesterElapsed(semester);
 
-      doc.setFontSize(10);
-      doc.setTextColor(100);
-      doc.text(`${new Date().toLocaleDateString('ar-SA')} :تاريخ التقرير`, pageW - margin, y, { align: 'right' });
-      y += 12;
+      const today = new Date();
+      const hijriToday = this.engine.hijriDisplayFromGregorian(
+        `${today.getFullYear()}/${today.getMonth()+1}/${today.getDate()}`
+      );
 
-      // الإحصائيات العامة
-      doc.setFontSize(14);
-      doc.setTextColor(61, 122, 98);
-      doc.text('نظرة عامة', pageW - margin, y, { align: 'right' });
-      y += 8;
+      // 2) بناء HTML بتصميم مطابق للتصميم المطلوب
+      const reportHTML = this._buildReportHTML({ stats, hijriToday, ratio });
 
-      doc.setFontSize(10);
-      doc.setTextColor(50);
-      const qualScore = stats.qualityDetails ? stats.qualityDetails.overall.toFixed(1) : '-';
-      const overviewData = [
-        [`${stats.totalExecutions}`, 'إجمالي التنفيذ'],
-        [`${stats.totalBeneficiaries}`, 'المستفيدون'],
-        [`${qualScore}/10`, 'متوسط الجودة'],
-        [`${stats.activeTeams}`, 'الفرق النشطة'],
-      ];
-      overviewData.forEach(([val, label]) => {
-        doc.text(`${val} :${label}`, pageW - margin, y, { align: 'right' });
-        y += 6;
+      // 3) حاوية مؤقتة خارج الشاشة
+      const host = document.createElement('div');
+      host.style.cssText = `
+        position: fixed; top: -20000px; left: 0;
+        width: 1400px; background: #FAF9F5;
+        font-family: 'Tajawal', sans-serif; direction: rtl;
+      `;
+      host.innerHTML = reportHTML;
+      document.body.appendChild(host);
+
+      // انتظار تحميل الخطوط والرسم
+      if (document.fonts && document.fonts.ready) {
+        try { await document.fonts.ready; } catch (_) {}
+      }
+      await new Promise(r => setTimeout(r, 150));
+
+      // 4) التقاط كـ canvas
+      const canvas = await html2canvas(host.firstElementChild, {
+        scale: 2,
+        backgroundColor: '#FAF9F5',
+        useCORS: true,
+        logging: false,
       });
-      y += 8;
 
-      // جدول المراحل
-      for (const [stageName, stageConf] of Object.entries(CONFIG.stages)) {
-        const s = stats.stageStats[stageName];
-        if (!s) continue;
+      // 5) إدراج في PDF (A4 landscape)
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+      const pageW = 297, pageH = 210;
+      const imgData = canvas.toDataURL('image/png');
+      // الحفاظ على النسبة داخل الصفحة
+      const ratioImg = canvas.width / canvas.height;
+      const ratioPage = pageW / pageH;
+      let drawW, drawH;
+      if (ratioImg > ratioPage) { drawW = pageW; drawH = pageW / ratioImg; }
+      else { drawH = pageH; drawW = pageH * ratioImg; }
+      const offX = (pageW - drawW) / 2;
+      const offY = (pageH - drawH) / 2;
+      doc.addImage(imgData, 'PNG', offX, offY, drawW, drawH, undefined, 'FAST');
 
-        if (y > 250) { doc.addPage(); y = 20; }
+      // تنظيف
+      document.body.removeChild(host);
 
-        doc.setFontSize(12);
-        doc.setTextColor(61, 122, 98);
-        doc.text(`فرق ${stageConf.label}`, pageW - margin, y, { align: 'right' });
-        y += 8;
-
-        doc.setFontSize(8);
-        doc.setTextColor(80);
-        const headers = ['الجودة', 'المستفيدون', 'الإنجاز%', 'المستهدف', 'المنفذ', 'الفريق'];
-        const colW = (pageW - 2 * margin) / headers.length;
-
-        // رأس الجدول
-        doc.setFillColor(61, 122, 98);
-        doc.rect(margin, y - 3, pageW - 2 * margin, 7, 'F');
-        doc.setTextColor(255);
-        headers.forEach((h, i) => {
-          doc.text(h, pageW - margin - i * colW - colW / 2, y + 1, { align: 'center' });
-        });
-        y += 7;
-        doc.setTextColor(50);
-
-        s.teams.sort((a, b) => b.completionRate - a.completionRate).forEach((team, idx) => {
-          if (y > 275) { doc.addPage(); y = 20; }
-          if (idx % 2 === 0) {
-            doc.setFillColor(245, 250, 247);
-            doc.rect(margin, y - 3, pageW - 2 * margin, 6, 'F');
-          }
-          const row = [
-            team.qualityAvg !== null ? team.qualityAvg.toFixed(1) : '-',
-            `${team.beneficiaries}`,
-            `${team.completionRate.toFixed(0)}%`,
-            `${team.target || '-'}`,
-            `${team.executions}`,
-            team.name,
-          ];
-          row.forEach((val, i) => {
-            doc.text(val, pageW - margin - i * colW - colW / 2, y + 1, { align: 'center' });
-          });
-          y += 6;
-        });
-        y += 8;
-      }
-
-      // تذييل
-      const totalPages = doc.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        doc.setPage(i);
-        doc.setFontSize(7);
-        doc.setTextColor(150);
-        doc.text('مشروع بارع — جمعية الراحين — تم إنشاؤه تلقائياً', pageW / 2, 290, { align: 'center' });
-        doc.text(`${i}/${totalPages}`, margin, 290);
-      }
-
-      doc.save(`تقرير-بارع-${new Date().toISOString().split('T')[0]}.pdf`);
+      const fname = `تقرير-بارع-${today.toISOString().split('T')[0]}.pdf`;
+      doc.save(fname);
       this.showToast('تم تصدير التقرير بنجاح');
     } catch (err) {
       console.error('PDF export error:', err);
       this.showToast('خطأ في تصدير التقرير');
     }
+  }
+
+  // حساب الأسابيع المنقضية من الفصل الدراسي
+  _semesterElapsed(semester) {
+    if (!semester) return { elapsedWeeks: 0, totalWeeks: 1, ratio: 0 };
+    const [sy, sm, sd] = semester.startGreg.split('/').map(Number);
+    const [ey, em, ed] = semester.endGreg.split('/').map(Number);
+    const start = new Date(sy, sm - 1, sd);
+    const end   = new Date(ey, em - 1, ed);
+    const today = new Date();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const totalDays = Math.max(1, Math.round((end - start) / dayMs));
+    const elapsedDays = Math.max(0, Math.min(totalDays, Math.round((today - start) / dayMs)));
+    const totalWeeks = Math.max(1, Math.ceil(totalDays / 7));
+    const elapsedWeeks = Math.max(0, Math.min(totalWeeks, Math.floor(elapsedDays / 7)));
+    const ratio = Math.max(0, Math.min(1, elapsedDays / totalDays));
+    return { elapsedWeeks, totalWeeks, ratio };
+  }
+
+  // استنتاج حالة الزيارة
+  _deriveVisitStatus(team, ratio) {
+    const expected = ratio * (team.target || 0);
+    const executed = team.executions || 0;
+    if (executed >= expected && executed > 0) {
+      return { text: 'جرى تنفيذها', color: '#3B915A' };
+    }
+    if (expected - executed >= 2.5 && ratio >= 0.25) {
+      return { text: 'مؤجلة اتفاقًا', color: '#C45A4A' };
+    }
+    return { text: 'لم يحن موعدها', color: '#D48C2E' };
+  }
+
+  _toArabicDigitsNoGroup(n) {
+    const s = String(n);
+    let out = '';
+    for (const ch of s) {
+      const c = ch.charCodeAt(0);
+      if (c >= 48 && c <= 57) out += String.fromCharCode(0x0660 + (c - 48));
+      else out += ch;
+    }
+    return out;
+  }
+
+  _buildReportHTML({ stats, hijriToday, ratio }) {
+    const TEAL_DARK = '#1C5C5C';
+    const TEAL_MID  = '#3F837A';
+    const TEAL_LT   = '#9BC9C1';
+    const TRACK     = '#E9ECEA';
+    const BORDER    = '#E2E2DC';
+
+    const toArDig = (n) => this._toArabicDigitsNoGroup(n);
+    const fmtPct = (v, digits = 1) => {
+      if (!isFinite(v)) v = 0;
+      const s = digits === 0 ? Math.round(v).toString() : v.toFixed(digits).replace(/\.0$/, '');
+      return toArDig(s) + '٪';
+    };
+
+    // بناء صفوف لكل مرحلة
+    const stagesHTML = Object.entries(CONFIG.stages).map(([stageName, stageConf]) => {
+      const s = stats.stageStats[stageName];
+      if (!s || !s.teams || s.teams.length === 0) return '';
+      // حساب إجمالي المرحلة (نسبة الإنجاز الكلية)
+      const stageTotalTarget = s.teams.reduce((acc, t) => acc + (t.target || 0), 0);
+      const stageExecuted    = s.teams.reduce((acc, t) => acc + (t.executions || 0), 0);
+      const stageRate = stageTotalTarget > 0 ? Math.min(100, (stageExecuted / stageTotalTarget) * 100) : 0;
+
+      const teamsHTML = s.teams.map(team => {
+        const target = team.target || 0;
+        const execPct  = target > 0 ? Math.min(100, (team.executions / target) * 100) : 0;
+        const todayPct = ratio * 100;
+        const status = this._deriveVisitStatus(team, ratio);
+        return `
+        <div class="row">
+          <div class="cell total-cell"></div>
+          <div class="cell pill visit" style="color:${status.color}">${status.text}</div>
+          <div class="cell pill cards">${toArDig(team.uniqueCards || 0)} من ${toArDig(target)}</div>
+          <div class="cell progress-wrap">
+            <div class="bar-track">
+              <div class="bar-today" style="width:${todayPct}%"></div>
+              <div class="bar-exec"  style="width:${execPct}%"></div>
+            </div>
+            <div class="pin pin-exec"  style="right:${100 - execPct}%">
+              <span class="pin-label pin-label-filled">${fmtPct(execPct, execPct % 1 === 0 ? 0 : 1)}</span>
+              <span class="pin-dot pin-dot-filled"></span>
+            </div>
+            <div class="pin pin-today" style="right:${100 - todayPct}%">
+              <span class="pin-label">${fmtPct(todayPct, todayPct % 1 === 0 ? 0 : 1)}</span>
+              <span class="pin-dot"></span>
+            </div>
+            <div class="pin pin-total" style="right:0%">
+              <span class="pin-label">${toArDig(100)}٪</span>
+              <span class="pin-dot"></span>
+            </div>
+          </div>
+          <div class="cell pill team">${team.name}</div>
+          <div class="cell stage-cell"></div>
+        </div>`;
+      }).join('');
+
+      return `
+        <div class="stage-block">
+          <div class="stage-tag"><span>${stageConf.label.replace('المرحلة ', '')}</span></div>
+          <div class="stage-rows">${teamsHTML}</div>
+          <div class="stage-total">${fmtPct(stageRate, 1)}</div>
+        </div>`;
+    }).join('');
+
+    return `
+    <div id="baraa-pdf-report" style="
+      width: 1400px; padding: 30px 34px; background: #FAF9F5;
+      font-family: 'Tajawal', sans-serif; color: #333; direction: rtl;
+      box-sizing: border-box;
+    ">
+      <style>
+        #baraa-pdf-report * { box-sizing: border-box; }
+        #baraa-pdf-report .header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 20px; }
+        #baraa-pdf-report .title-wrap { flex: 1; text-align: center; padding-top: 4px; }
+        #baraa-pdf-report .title { font-size: 32px; font-weight: 800; color: ${TEAL_MID}; margin: 0; }
+        #baraa-pdf-report .subtitle { font-size: 16px; font-weight: 500; color: ${TEAL_MID}; margin-top: 4px; opacity: 0.9; }
+        #baraa-pdf-report .logo-box {
+          display: flex; align-items: center; gap: 10px;
+          background: #fff; border: 1px solid ${BORDER}; border-radius: 10px;
+          padding: 10px 16px; min-width: 200px;
+        }
+        #baraa-pdf-report .logo-name { font-size: 24px; font-weight: 800; color: ${TEAL_MID}; }
+        #baraa-pdf-report .logo-sub  { font-size: 8px; color: #666; margin-top: 2px; }
+        #baraa-pdf-report .logo-sep  { width: 1px; height: 40px; background: ${BORDER}; }
+
+        #baraa-pdf-report .col-headers { display: flex; align-items: stretch; gap: 8px; margin-bottom: 6px; }
+        #baraa-pdf-report .col-headers .hdr {
+          background: ${TEAL_MID}; color: white; padding: 10px 4px;
+          border-radius: 8px; font-weight: 700; font-size: 14px; text-align: center;
+        }
+        #baraa-pdf-report .hdr-total   { width: 92px; }
+        #baraa-pdf-report .hdr-visit   { width: 130px; }
+        #baraa-pdf-report .hdr-cards   { width: 90px; }
+        #baraa-pdf-report .hdr-progress{ flex: 1; }
+        #baraa-pdf-report .hdr-team    { width: 72px; }
+        #baraa-pdf-report .hdr-stage   { width: 34px; }
+
+        #baraa-pdf-report .legend { display: flex; justify-content: space-around; padding: 6px 0 12px; font-size: 10px; color: #555; }
+        #baraa-pdf-report .legend .item { display: flex; align-items: center; gap: 6px; }
+        #baraa-pdf-report .legend .dot { width: 9px; height: 9px; border-radius: 50%; border: 1px solid #bbb; }
+
+        #baraa-pdf-report .stage-block {
+          display: flex; align-items: stretch; gap: 8px; margin-bottom: 14px;
+          min-height: 60px;
+        }
+        #baraa-pdf-report .stage-total {
+          width: 92px; background: #fff; border: 1px solid ${BORDER}; border-radius: 8px;
+          display: flex; align-items: center; justify-content: center;
+          font-size: 26px; font-weight: 800; color: ${TEAL_MID};
+          order: 1;
+        }
+        #baraa-pdf-report .stage-rows { flex: 1; display: flex; flex-direction: column; gap: 6px; order: 2; }
+        #baraa-pdf-report .stage-tag {
+          width: 34px; background: ${TEAL_MID}; border-radius: 8px;
+          display: flex; align-items: center; justify-content: center;
+          color: white; order: 3;
+        }
+        #baraa-pdf-report .stage-tag span {
+          writing-mode: vertical-rl; transform: rotate(180deg);
+          font-weight: 700; font-size: 17px; letter-spacing: 2px;
+        }
+
+        #baraa-pdf-report .row { display: flex; align-items: center; gap: 8px; height: 32px; }
+        #baraa-pdf-report .cell { height: 28px; display: flex; align-items: center; justify-content: center; }
+        #baraa-pdf-report .pill {
+          background: #fff; border: 1px solid ${BORDER}; border-radius: 999px;
+          font-weight: 700; font-size: 12px; padding: 0 8px;
+        }
+        #baraa-pdf-report .total-cell { width: 92px; }
+        #baraa-pdf-report .stage-cell { width: 34px; }
+        #baraa-pdf-report .visit { width: 130px; }
+        #baraa-pdf-report .cards { width: 90px; color: #555; font-weight: 600; }
+        #baraa-pdf-report .team  { width: 72px; color: ${TEAL_MID}; }
+
+        #baraa-pdf-report .progress-wrap { flex: 1; position: relative; height: 28px; }
+        #baraa-pdf-report .bar-track {
+          position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%);
+          height: 10px; background: ${TRACK}; border-radius: 5px; overflow: hidden;
+        }
+        #baraa-pdf-report .bar-today {
+          position: absolute; left: 0; top: 0; bottom: 0; background: ${TEAL_LT}; border-radius: 5px;
+        }
+        #baraa-pdf-report .bar-exec {
+          position: absolute; left: 0; top: 0; bottom: 0; background: ${TEAL_DARK}; border-radius: 5px;
+        }
+        #baraa-pdf-report .pin {
+          position: absolute; top: 0; transform: translateX(50%);
+          display: flex; flex-direction: column; align-items: center; gap: 2px;
+        }
+        #baraa-pdf-report .pin-dot {
+          width: 7px; height: 7px; border-radius: 50%;
+          background: #fff; border: 1px solid #999; margin-top: 2px;
+        }
+        #baraa-pdf-report .pin-dot-filled {
+          background: ${TEAL_DARK}; border-color: ${TEAL_DARK};
+        }
+        #baraa-pdf-report .pin-label {
+          font-size: 10px; font-weight: 700; color: #555;
+          background: #FAF9F5; padding: 0 4px; white-space: nowrap;
+        }
+        #baraa-pdf-report .pin-label-filled { color: ${TEAL_DARK}; }
+
+        #baraa-pdf-report .footer {
+          margin-top: 16px; text-align: center;
+          font-size: 12px; color: #555; font-weight: 500;
+        }
+        #baraa-pdf-report .footer .q { color: ${TEAL_MID}; font-weight: 700; }
+      </style>
+
+      <div class="header">
+        <div class="logo-box">
+          <div>
+            <div class="logo-name">الرياحين</div>
+            <div class="logo-sub">برنامج بناء الشخصية المتكاملة</div>
+          </div>
+          <div class="logo-sep"></div>
+          <div class="logo-name">بارع</div>
+        </div>
+        <div class="title-wrap">
+          <div class="title">التقييم الأسبوعي لأداء الفرق</div>
+          <div class="subtitle">— حتى تاريخ ${hijriToday} —</div>
+        </div>
+        <div style="width: 220px;"></div>
+      </div>
+
+      <div class="col-headers">
+        <div class="hdr hdr-total">الإجمالي</div>
+        <div class="hdr hdr-visit">الزيارة</div>
+        <div class="hdr hdr-cards">البطاقات</div>
+        <div class="hdr hdr-progress">نسبة التقدم مقارنةً بالمطلوب</div>
+        <div class="hdr hdr-team">الفريق</div>
+        <div class="hdr hdr-stage">المرحلة</div>
+      </div>
+
+      <div class="legend">
+        <div class="item"><span class="dot" style="background:${TRACK}"></span>مستهدف الفصل الكلي</div>
+        <div class="item"><span class="dot" style="background:${TEAL_LT}"></span>المستهدف حتى تاريخ التقرير</div>
+        <div class="item"><span class="dot" style="background:${TEAL_DARK}"></span>المنفذ حتى تاريخ التقرير</div>
+      </div>
+
+      ${stagesHTML}
+
+      <div class="footer">
+        <span class="q">س/ لماذا المطلوب مني أكثر من غيري؟</span>
+        &nbsp;&nbsp;|&nbsp;&nbsp;
+        <span>ج/ لأن درجتك محسوبة باعتبار استحقاق الزيارة</span>
+      </div>
+    </div>`;
   }
 
   // ==================== احتفالات ====================

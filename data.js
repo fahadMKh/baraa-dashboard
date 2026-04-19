@@ -13,6 +13,26 @@ class DataEngine {
     return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}`;
   }
 
+  /**
+   * fetch مع timeout افتراضي 15 ثانية — يمنع تعليق التطبيق إذا تأخر السيرفر
+   */
+  async _fetchWithTimeout(url, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response;
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        throw new Error(`انتهت مهلة الاتصال (${timeoutMs / 1000} ث)`);
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   parseCSV(text) {
     const rows = [];
     let current = '';
@@ -46,14 +66,38 @@ class DataEngine {
   async fetchSheet(sheetId, gid) {
     const url = this.buildCSVUrl(sheetId, gid);
     try {
-      const response = await fetch(url);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const response = await this._fetchWithTimeout(url);
       const text = await response.text();
       const rows = this.parseCSV(text);
       return rows.length > 1 ? rows.slice(1) : [];
     } catch (error) {
       console.error('خطأ في جلب البيانات:', error);
       throw error;
+    }
+  }
+
+  /**
+   * جلب الإعدادات المشتركة من Google Sheet عبر Apps Script
+   * يُرجع: { teams, targets, semesters } أو null
+   */
+  async fetchConfig() {
+    const scriptURL = CONFIG.sheets.users?.scriptURL;
+    if (!scriptURL) {
+      console.warn('⚠️ لم يتم تحديد رابط Apps Script');
+      return null;
+    }
+    try {
+      const resp = await this._fetchWithTimeout(`${scriptURL}?action=getConfig`, 10000);
+      const config = await resp.json();
+      if (config && config.status === 'ok' && config.teams && Object.keys(config.teams).length > 0) {
+        console.log('✅ تم جلب الإعدادات المشتركة:', Object.keys(config.teams).length, 'مرحلة');
+        return config;
+      }
+      console.log('📦 لا توجد إعدادات مشتركة في الشيت (استخدام الإعدادات المحلية)');
+      return null;
+    } catch (err) {
+      console.error('خطأ في جلب الإعدادات:', err);
+      return null;
     }
   }
 
@@ -212,6 +256,33 @@ class DataEngine {
   }
 
   /**
+   * تحويل تاريخ ميلادي (YYYY/MM/DD أو YYYY-MM-DD) → نص هجري معروض بالعربية
+   * مثال: "2024/11/17" → "١٥ جمادى الأولى ١٤٤٦"
+   */
+  /** تحويل الأرقام ASCII → عربية-هندية بدون فواصل: 1447 → ١٤٤٧ */
+  _toArabicDigits(n) {
+    return String(n).replace(/\d/g, d => String.fromCharCode(0x0660 + parseInt(d)));
+  }
+
+  hijriDisplayFromGregorian(dateStr) {
+    if (!dateStr) return '-';
+    const m = dateStr.match(/(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+    if (!m) return dateStr;
+    const y = parseInt(m[1]), mo = parseInt(m[2]), d = parseInt(m[3]);
+    const months = ['محرم','صفر','ربيع الأول','ربيع الثاني',
+                    'جمادى الأولى','جمادى الآخرة','رجب','شعبان',
+                    'رمضان','شوال','ذو القعدة','ذو الحجة'];
+    // إن كانت السنة هجرية أصلاً (< 1500) → نعرضها مباشرة
+    if (y < 1500) {
+      const mName = months[mo - 1] || String(mo);
+      return `${this._toArabicDigits(d)} ${mName} ${this._toArabicDigits(y)}`;
+    }
+    const h = this.gregorianToHijri(y, mo, d);
+    const mName = months[h.month - 1] || String(h.month);
+    return `${this._toArabicDigits(h.day)} ${mName} ${this._toArabicDigits(h.year)}`;
+  }
+
+  /**
    * تحديد الفصل من الطابع الزمني الميلادي — مقارنة مباشرة بـ startGreg/endGreg
    */
   getSemesterFromTimestamp(timestamp) {
@@ -309,17 +380,22 @@ class DataEngine {
   }
 
   calcQualityAvg(rows) {
-    if (!rows.length) return null;
+    if (!rows || !rows.length) return null;
     const col = CONFIG.qualityColumns;
     let total = 0, count = 0;
     rows.forEach(row => {
-      const scores = [
-        parseFloat(row[col.participantEngagement]) || 0,
-        parseFloat(row[col.executorComprehension]) || 0,
-        parseFloat(row[col.contentCompliance]) || 0,
-        parseFloat(row[col.evalCompliance]) || 0,
+      const raw = [
+        parseFloat(row[col.participantEngagement]),
+        parseFloat(row[col.executorComprehension]),
+        parseFloat(row[col.contentCompliance]),
+        parseFloat(row[col.evalCompliance]),
       ];
-      total += scores.reduce((a, b) => a + b, 0) / scores.length;
+      // استبعاد NaN فقط — القيم الصفرية مسموحة
+      const scores = raw.filter(v => Number.isFinite(v));
+      if (scores.length === 0) return; // تجاهل الصف إن لم تكن فيه درجة صالحة
+      const rowAvg = scores.reduce((a, b) => a + b, 0) / scores.length;
+      if (!Number.isFinite(rowAvg)) return;
+      total += rowAvg;
       count++;
     });
     return count > 0 ? total / count : null;
@@ -482,9 +558,23 @@ class DataEngine {
       }
       const d = cardDetails[card];
       d.executions++;
-      if (row[col.executor])  d.executors.add(row[col.executor]);
-      if (row[col.hijriDate]) d.dates.push(row[col.hijriDate]);
-      if (row[col.method])    d.methods.add(row[col.method]);
+      if (row[col.executor]) d.executors.add(row[col.executor]);
+      // التاريخ الهجري دائماً:
+      // - إن كان hijriDate هجرياً (السنة < 1500) → استخدمه مباشرة
+      // - إن كان ميلادياً (السنة ≥ 1500) أو فارغاً → حوّله من timestamp
+      let hDate = '';
+      const rawDate = (row[col.hijriDate] || '').trim();
+      if (rawDate) {
+        const dm = rawDate.match(/^(\d{4})[\/\-]/);
+        const yr = dm ? parseInt(dm[1]) : 0;
+        hDate = yr >= 1500
+          ? this.hijriDisplayFromGregorian(rawDate)
+          : rawDate;
+      } else {
+        hDate = this.hijriDisplayFromGregorian(this.getDateFromTimestamp(row[col.timestamp]));
+      }
+      if (hDate && hDate !== '-') d.dates.push(hDate);
+      if (row[col.method]) d.methods.add(row[col.method]);
       d.beneficiaries += parseInt(row[col.beneficiaries]) || 0;
     });
     Object.values(cardDetails).forEach(d => {
@@ -555,7 +645,8 @@ class DataEngine {
       else if (count >= 5) level = 3;
       else if (count >= 2) level = 2;
       else if (count >= 1) level = 1;
-      cells.push({ date: key, count, level, dayOfWeek: d.getDay() });
+      const hijriLabel = this.hijriDisplayFromGregorian(`${d.getFullYear()}/${d.getMonth()+1}/${d.getDate()}`);
+      cells.push({ date: key, hijriDate: hijriLabel, count, level, dayOfWeek: d.getDay() });
     }
     return cells;
   }
@@ -586,7 +677,8 @@ class DataEngine {
         if (date >= weekStart && date <= weekEnd) count++;
       });
 
-      const label = `${weekStart.getDate()}/${weekStart.getMonth()+1}`;
+      const wh = this.gregorianToHijri(weekStart.getFullYear(), weekStart.getMonth()+1, weekStart.getDate());
+      const label = `${wh.day}/${wh.month}`;
       weekData.push({ label, count, weekStart, weekEnd });
     }
     return weekData;
