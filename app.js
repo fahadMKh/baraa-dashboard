@@ -1910,6 +1910,11 @@ class App {
         <div class="admin-actions">
           <button class="admin-btn primary" onclick="app._saveAdminTargets()">حفظ المستهدفات</button>
           <button class="admin-btn outline" onclick="app._resetAdminTargets()">استعادة الافتراضي</button>
+          ${localStorage.getItem('baraa_targets_backup') ? `
+            <button class="admin-btn" style="background:#fff3cd;color:#856404;border:1px solid #ffeaa7"
+              onclick="app._undoResetTargets()" title="استعادة المستهدفات قبل آخر إعادة افتراضية">
+              ↶ تراجع عن الاستعادة
+            </button>` : ''}
         </div>
       </div>
     `;
@@ -2391,8 +2396,37 @@ class App {
   }
 
   _resetAdminTargets() {
+    const current = localStorage.getItem('baraa_targets');
+    const hasData = current && current !== '{}' && current !== '';
+
+    if (hasData) {
+      const ok = confirm(
+        '⚠️ هل أنت متأكد من استعادة المستهدفات الافتراضية؟\n\n' +
+        'سيتم حذف جميع المستهدفات المخصّصة التي أدخلتها.\n' +
+        'سنحفظ نسخة احتياطية يمكن التراجع إليها (زر "تراجع عن الاستعادة").'
+      );
+      if (!ok) return;
+      // نسخة احتياطية للتراجع
+      localStorage.setItem('baraa_targets_backup', current);
+      localStorage.setItem('baraa_targets_backup_date', new Date().toISOString());
+    }
+
     localStorage.removeItem('baraa_targets');
-    this.showToast('تمت استعادة المستهدفات الافتراضية');
+    this.showToast(hasData ? 'تمت الاستعادة (يمكن التراجع من زر "تراجع")' : 'تمت استعادة المستهدفات الافتراضية');
+    location.reload();
+  }
+
+  /** التراجع عن آخر استعادة افتراضية (يستعيد النسخة الاحتياطية) */
+  _undoResetTargets() {
+    const backup = localStorage.getItem('baraa_targets_backup');
+    if (!backup) {
+      this.showToast('لا توجد نسخة احتياطية للتراجع');
+      return;
+    }
+    localStorage.setItem('baraa_targets', backup);
+    localStorage.removeItem('baraa_targets_backup');
+    localStorage.removeItem('baraa_targets_backup_date');
+    this.showToast('✅ تم التراجع — استُعيدت المستهدفات السابقة');
     location.reload();
   }
 
