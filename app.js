@@ -118,10 +118,13 @@ class App {
     console.log('✅ تم تطبيق الإعدادات المشتركة من Google Sheet');
   }
 
-  /** حفظ الإعدادات الحالية في Google Sheet */
-  _saveConfigToSheet() {
+  /**
+   * حفظ الإعدادات الحالية في Google Sheet
+   * يُرجع true إذا تأكّد الحفظ، false عند الفشل
+   */
+  async _saveConfigToSheet() {
     const scriptURL = CONFIG.sheets.users?.scriptURL;
-    if (!scriptURL) return;
+    if (!scriptURL) return false;
     const configData = {
       teams: CONFIG.teams,
       targets: CONFIG.targets,
@@ -129,8 +132,14 @@ class App {
     };
     const encoded = encodeURIComponent(JSON.stringify(configData));
     const url = `${scriptURL}?action=saveConfig&data=${encoded}`;
-    this._callScript(url);
     console.log('📤 جارٍ حفظ الإعدادات في Google Sheet...');
+    const result = await this._callScript(url);
+    if (result.ok) {
+      console.log('✅ تم حفظ الإعدادات في Google Sheet (سيراها التطبيق عند أول تحديث)');
+      return true;
+    }
+    console.error('❌ فشل حفظ الإعدادات في الشيت:', result.error || 'unknown');
+    return false;
   }
 
   /** تحميل الإعدادات المحلية */
@@ -2363,7 +2372,7 @@ class App {
     localStorage.setItem('baraa_targets', JSON.stringify(overrides));
   }
 
-  _saveAdminTargets() {
+  async _saveAdminTargets() {
     const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
     for (const [stage, sems] of Object.entries(overrides)) {
       if (!CONFIG.targets[stage]) CONFIG.targets[stage] = {};
@@ -2371,9 +2380,14 @@ class App {
         CONFIG.targets[stage][semId] = val;
       }
     }
-    this._saveConfigToSheet();
+    this.showToast('جارٍ حفظ المستهدفات...');
+    const ok = await this._saveConfigToSheet();
     this.renderCurrentView();
-    this.showToast('تم حفظ المستهدفات');
+    if (ok) {
+      this.showToast('تم حفظ المستهدفات ✅ (سيراها التطبيق عند أول تحديث)');
+    } else {
+      this.showToast('⚠️ تعذّر حفظ المستهدفات في الشيت — التغييرات محفوظة محلياً فقط');
+    }
   }
 
   _resetAdminTargets() {
@@ -2382,34 +2396,34 @@ class App {
     location.reload();
   }
 
-  _addTeam(stage) {
+  async _addTeam(stage) {
     const input = document.getElementById(`new-team-${stage}`);
     const name = input?.value.trim();
     if (!name) return;
     if (!CONFIG.teams[stage]) CONFIG.teams[stage] = [];
     if (CONFIG.teams[stage].includes(name)) { this.showToast('الفريق موجود مسبقاً'); return; }
     CONFIG.teams[stage].push(name);
-    this._saveTeamsToLocal();
     this.renderAdmin();
-    this.showToast(`تمت إضافة فريق "${name}"`);
+    const ok = await this._saveTeamsToLocal();
+    this.showToast(ok ? `تمت إضافة فريق "${name}" ✅` : `⚠️ "${name}" محفوظ محلياً فقط`);
   }
 
-  _removeTeam(stage, name) {
+  async _removeTeam(stage, name) {
     if (!confirm(`حذف فريق "${name}"؟`)) return;
     if (!CONFIG.teams[stage]) return;
     CONFIG.teams[stage] = CONFIG.teams[stage].filter(t => t !== name);
-    this._saveTeamsToLocal();
     this.renderAdmin();
-    this.showToast(`تمت إزالة فريق "${name}"`);
+    const ok = await this._saveTeamsToLocal();
+    this.showToast(ok ? `تمت إزالة فريق "${name}" ✅` : `⚠️ تمت الإزالة محلياً فقط`);
   }
 
-  _saveTeamsToLocal() {
+  async _saveTeamsToLocal() {
     localStorage.setItem('baraa_teams', JSON.stringify(CONFIG.teams));
-    this._saveConfigToSheet();
+    return await this._saveConfigToSheet();
   }
 
   // --- الفصول الدراسية ---
-  _addSemester() {
+  async _addSemester() {
     const year = parseInt(document.getElementById('sem-year')?.value);
     const num = document.getElementById('sem-number')?.value;
     const startGreg = document.getElementById('sem-start-greg')?.value;
@@ -2452,33 +2466,51 @@ class App {
       if (!CONFIG.targets[stage][id]) CONFIG.targets[stage][id] = 0;
     }
 
-    this._saveConfigToSheet();
     this.buildFilterUI();
     this.renderAdmin();
-    this.showToast(`تمت إضافة ${newSem.label}`);
+    const ok = await this._saveConfigToSheet();
+    this.showToast(ok ? `تمت إضافة ${newSem.label} ✅` : `⚠️ ${newSem.label} محفوظ محلياً فقط`);
   }
 
-  _removeSemester(semId) {
+  async _removeSemester(semId) {
     if (!confirm(`حذف الفصل "${semId}"؟ هذا لن يحذف البيانات المرتبطة به.`)) return;
     CONFIG.semesters = CONFIG.semesters.filter(s => s.id !== semId);
     localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
-    this._saveConfigToSheet();
     this.buildFilterUI();
     this.renderAdmin();
-    this.showToast('تم حذف الفصل');
+    const ok = await this._saveConfigToSheet();
+    this.showToast(ok ? 'تم حذف الفصل ✅' : '⚠️ تم الحذف محلياً فقط');
   }
 
   // --- اتصال Apps Script ---
-  /** إرسال طلب GET لـ Apps Script بدون مشاكل CORS */
-  _callScript(url) {
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => resolve(true);
-      img.onerror = () => resolve(true); // Apps Script لا يرجع صورة، لكن الطلب يُنفَّذ
-      img.src = url;
-      // timeout احتياطي
-      setTimeout(() => resolve(true), 5000);
-    });
+  /**
+   * إرسال طلب GET لـ Apps Script والتحقق من نجاح التنفيذ
+   * يُرجع: { ok, data?, error? }
+   */
+  async _callScript(url) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 20000);
+      const resp = await fetch(url, { method: 'GET', redirect: 'follow', signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!resp.ok) {
+        console.error(`❌ Apps Script HTTP ${resp.status}`);
+        return { ok: false, error: `HTTP ${resp.status}` };
+      }
+      const text = await resp.text();
+      try {
+        const data = JSON.parse(text);
+        const ok = data && (data.status === 'ok' || data.status === 'empty');
+        if (!ok) console.warn('⚠️ Apps Script returned non-ok status:', data);
+        return { ok, data };
+      } catch {
+        // الاستجابة ليست JSON — اعتبر النجاح إن وصلنا هنا (HTTP 2xx)
+        return { ok: true, raw: text };
+      }
+    } catch (err) {
+      console.error('❌ Apps Script:', err.name === 'AbortError' ? 'timeout' : err.message);
+      return { ok: false, error: err.message };
+    }
   }
 
   // --- نظام الصلاحيات ---
