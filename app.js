@@ -2556,25 +2556,62 @@ class App {
     this.showToast(ok ? 'تم حذف الفصل ✅' : '⚠️ تم الحذف محلياً فقط');
   }
 
-  /** تنظيف تلقائي: إزالة المكرر والمعرّفات التالفة مع الإبقاء على أحدث/أصح نسخة */
+  /** محاولة استخراج معرّف صالح من label مثل "الفصل الأول 1447" → "1447-1" */
+  _deriveSemesterId(sem) {
+    const label = String(sem.label || '');
+    const ordinalMap = { 'الأول': 1, 'الثاني': 2, 'الثالث': 3, 'الاول': 1 };
+    let num = null;
+    for (const [word, n] of Object.entries(ordinalMap)) {
+      if (label.includes(word)) { num = n; break; }
+    }
+    // السنة: من sem.year أو من label
+    let year = parseInt(sem.year);
+    if (isNaN(year)) {
+      const yMatch = label.match(/(14[3-9]\d|15\d\d)/);
+      if (yMatch) year = parseInt(yMatch[1]);
+    }
+    // كاحتياطي: من startHijri.year
+    if (isNaN(year) && sem.startHijri && typeof sem.startHijri === 'object') {
+      year = parseInt(sem.startHijri.year);
+    }
+    if (!num && sem.semester) num = parseInt(sem.semester);
+    if (year && num) return `${year}-${num}`;
+    return null;
+  }
+
+  /** تنظيف تلقائي: إصلاح المعرّفات التالفة + إزالة المكرّر */
   async _cleanupSemesters() {
     const validIdPattern = /^\d{4}-[1-3]$/;
     const before = CONFIG.semesters.length;
-    // احفظ نسخة احتياطية قبل التنظيف
     localStorage.setItem('baraa_semesters_backup', localStorage.getItem('baraa_semesters') || '[]');
     localStorage.setItem('baraa_semesters_backup_date', new Date().toISOString());
 
-    // أبقِ نسخة واحدة فقط لكل معرّف صالح
-    const seen = new Map();
+    let recovered = 0, dropped = 0;
+    // المرحلة الأولى: حاول إصلاح المعرّفات التالفة من label
+    const fixed = [];
     for (const s of CONFIG.semesters) {
       const idStr = String(s.id);
-      if (!validIdPattern.test(idStr)) continue; // أهمِل المعرّفات التالفة
-      // فضِّل النسخة التي لها label وstartGreg وendGreg
-      const score = (s.label ? 1 : 0) + (s.startGreg ? 1 : 0) + (s.endGreg ? 1 : 0);
-      const existing = seen.get(idStr);
-      if (!existing || score > existing.score) {
-        seen.set(idStr, { sem: s, score });
+      if (validIdPattern.test(idStr)) {
+        fixed.push(s);
+      } else {
+        const newId = this._deriveSemesterId(s);
+        if (newId) {
+          fixed.push({ ...s, id: newId });
+          recovered++;
+        } else {
+          dropped++;
+        }
       }
+    }
+
+    // المرحلة الثانية: إزالة المكرّر مع الإبقاء على الأكمل
+    const seen = new Map();
+    for (const s of fixed) {
+      const idStr = String(s.id);
+      const score = (s.label ? 1 : 0) + (s.startGreg ? 1 : 0) + (s.endGreg ? 1 : 0)
+                  + (s.startHijri && typeof s.startHijri === 'object' ? 1 : 0);
+      const existing = seen.get(idStr);
+      if (!existing || score > existing.score) seen.set(idStr, { sem: s, score });
     }
     CONFIG.semesters = Array.from(seen.values()).map(v => v.sem)
       .sort((a, b) => String(a.id).localeCompare(String(b.id)));
@@ -2585,7 +2622,10 @@ class App {
     this.buildFilterUI();
     this.renderAdmin();
     const ok = await this._saveConfigToSheet();
-    this.showToast(`✅ تم التنظيف: حُذف ${removed} عنصر تالف/مكرَّر${ok ? ' وحُفظت في الشيت' : ' (محلياً فقط)'}`);
+    let msg = `✅ تم التنظيف: استُرجع ${recovered} معرّف، حُذف ${removed} عنصر مكرَّر/تالف`;
+    if (dropped > 0) msg += ` (تعذّر استرجاع ${dropped})`;
+    msg += ok ? ' وحُفظت في الشيت' : ' (محلياً فقط)';
+    this.showToast(msg);
   }
 
   /** إعادة الفصول للقيم الافتراضية المضمَّنة في config.js (مع نسخة احتياطية) */
