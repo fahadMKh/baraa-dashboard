@@ -1948,25 +1948,50 @@ class App {
   // ---------- تبويب الفصول الدراسية ----------
   _renderAdminSemesters() {
     const curSem = this.engine.getCurrentSemesterId();
+    // اكتشاف التكرار والمعرّفات التالفة
+    const seenIds = new Set();
+    const duplicates = [];
+    const corrupted = [];
+    const validIdPattern = /^\d{4}-[1-3]$/;
+    CONFIG.semesters.forEach((s, idx) => {
+      const idStr = String(s.id);
+      if (seenIds.has(idStr)) duplicates.push(idx);
+      else seenIds.add(idStr);
+      if (!validIdPattern.test(idStr)) corrupted.push(idx);
+    });
+    const hasIssues = duplicates.length > 0 || corrupted.length > 0;
+
     let html = `
       <div class="admin-section">
         <div class="admin-title">📅 الفصول الدراسية الحالية</div>
+        ${hasIssues ? `
+          <div class="admin-notice" style="background:#fff3cd;color:#856404;border:1px solid #ffeaa7">
+            ⚠️ تم اكتشاف مشكلات في قائمة الفصول:
+            ${duplicates.length > 0 ? `<br>• <strong>${duplicates.length}</strong> فصل مكرَّر` : ''}
+            ${corrupted.length > 0 ? `<br>• <strong>${corrupted.length}</strong> فصل بمعرّف تالف (يفترض أن يكون مثل <code>1447-1</code>)` : ''}
+            <br><button class="admin-btn primary" style="margin-top:10px" onclick="app._cleanupSemesters()">🧹 تنظيف تلقائي</button>
+            <button class="admin-btn outline" style="margin-top:10px;margin-right:8px" onclick="app._resetSemestersToDefault()">↺ إعادة الفصول للافتراضي</button>
+          </div>
+        ` : ''}
         <table class="admin-table">
           <thead>
             <tr><th>الفصل</th><th>المعرّف</th><th>بداية (ميلادي)</th><th>نهاية (ميلادي)</th><th>الحالة</th><th>إجراء</th></tr>
           </thead>
           <tbody>
     `;
-    CONFIG.semesters.forEach(sem => {
+    CONFIG.semesters.forEach((sem, idx) => {
       const isCurrent = sem.id === curSem;
+      const isDup = duplicates.includes(idx);
+      const isBad = corrupted.includes(idx);
+      const rowStyle = isCurrent ? 'background:#e8f5e9' : (isBad ? 'background:#ffe6e6' : (isDup ? 'background:#fff8e1' : ''));
       html += `
-        <tr${isCurrent ? ' style="background:#e8f5e9"' : ''}>
-          <td style="font-weight:600">${sem.label}</td>
-          <td style="font-size:0.8rem;color:var(--text-light)">${sem.id}</td>
-          <td>${sem.startGreg}</td>
-          <td>${sem.endGreg}</td>
-          <td>${isCurrent ? '<span style="color:var(--accent);font-weight:600">● الحالي</span>' : ''}</td>
-          <td><button class="admin-btn danger" style="padding:4px 10px;font-size:0.75rem" onclick="app._removeSemester('${sem.id}')">حذف</button></td>
+        <tr${rowStyle ? ` style="${rowStyle}"` : ''}>
+          <td style="font-weight:600">${sem.label || '-'}</td>
+          <td style="font-size:0.8rem;color:var(--text-light);max-width:240px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${sem.id}">${sem.id}</td>
+          <td>${sem.startGreg || '-'}</td>
+          <td>${sem.endGreg || '-'}</td>
+          <td>${isCurrent ? '<span style="color:var(--accent);font-weight:600">● الحالي</span>' : (isBad ? '<span style="color:#d33">معرّف تالف</span>' : (isDup ? '<span style="color:#856404">مكرَّر</span>' : ''))}</td>
+          <td><button class="admin-btn danger" style="padding:4px 10px;font-size:0.75rem" onclick="app._removeSemesterByIndex(${idx})">حذف</button></td>
         </tr>
       `;
     });
@@ -2367,7 +2392,12 @@ class App {
   _getAdminTarget(stage, semId) {
     const overrides = JSON.parse(localStorage.getItem('baraa_targets') || '{}');
     if (overrides[stage] && overrides[stage][semId] !== undefined) return overrides[stage][semId];
-    return CONFIG.targets[stage]?.[semId] || 0;
+    const stageDefaults = CONFIG.targets[stage] || {};
+    if (stageDefaults[semId] !== undefined && stageDefaults[semId] > 0) return stageDefaults[semId];
+    // احتياطي ذكي: متوسط القيم المعروفة للمرحلة (لتفادي ظهور 0 لفصول مخصّصة)
+    const known = Object.values(stageDefaults).filter(v => typeof v === 'number' && v > 0);
+    if (known.length > 0) return Math.round(known.reduce((a, b) => a + b, 0) / known.length);
+    return 10;
   }
 
   _setAdminTarget(stage, semId, value) {
@@ -2471,12 +2501,19 @@ class App {
       this.showToast('يرجى ملء الحقول المطلوبة (السنة، الرقم، البداية والنهاية الميلادية)');
       return;
     }
-
-    const id = `${year}-${num}`;
-    if (CONFIG.semesters.find(s => s.id === id)) {
-      this.showToast('هذا الفصل موجود مسبقاً');
+    if (isNaN(year) || year < 1440 || year > 1500) {
+      this.showToast('السنة الهجرية غير صالحة');
       return;
     }
+    const numInt = parseInt(num);
+    if (isNaN(numInt) || numInt < 1 || numInt > 3) {
+      this.showToast('رقم الفصل غير صالح (يجب أن يكون 1، 2، أو 3)');
+      return;
+    }
+
+    const id = `${year}-${numInt}`;
+    // نظِّف أي فصل بنفس المعرّف (يحمي من التكرار حتى لو كان موجوداً مسبقاً بمعرّف غير سليم)
+    CONFIG.semesters = CONFIG.semesters.filter(s => String(s.id) !== id);
 
     const labels = { '1': 'الفصل الأول', '2': 'الفصل الثاني', '3': 'الفصل الثالث' };
     const newSem = {
@@ -2491,7 +2528,7 @@ class App {
     };
 
     CONFIG.semesters.push(newSem);
-    CONFIG.semesters.sort((a, b) => a.id.localeCompare(b.id));
+    CONFIG.semesters.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
 
     // تهيئة المستهدفات
@@ -2506,9 +2543,70 @@ class App {
     this.showToast(ok ? `تمت إضافة ${newSem.label} ✅` : `⚠️ ${newSem.label} محفوظ محلياً فقط`);
   }
 
+  /** حذف فصل بحسب الفهرس — أكثر أماناً مع المعرّفات التالفة/المكررة */
+  async _removeSemesterByIndex(idx) {
+    const sem = CONFIG.semesters[idx];
+    if (!sem) return;
+    if (!confirm(`حذف الفصل "${sem.label || sem.id}"؟\nالمعرّف: ${sem.id}\nهذا لن يحذف البيانات المرتبطة.`)) return;
+    CONFIG.semesters.splice(idx, 1);
+    localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
+    this.buildFilterUI();
+    this.renderAdmin();
+    const ok = await this._saveConfigToSheet();
+    this.showToast(ok ? 'تم حذف الفصل ✅' : '⚠️ تم الحذف محلياً فقط');
+  }
+
+  /** تنظيف تلقائي: إزالة المكرر والمعرّفات التالفة مع الإبقاء على أحدث/أصح نسخة */
+  async _cleanupSemesters() {
+    const validIdPattern = /^\d{4}-[1-3]$/;
+    const before = CONFIG.semesters.length;
+    // احفظ نسخة احتياطية قبل التنظيف
+    localStorage.setItem('baraa_semesters_backup', localStorage.getItem('baraa_semesters') || '[]');
+    localStorage.setItem('baraa_semesters_backup_date', new Date().toISOString());
+
+    // أبقِ نسخة واحدة فقط لكل معرّف صالح
+    const seen = new Map();
+    for (const s of CONFIG.semesters) {
+      const idStr = String(s.id);
+      if (!validIdPattern.test(idStr)) continue; // أهمِل المعرّفات التالفة
+      // فضِّل النسخة التي لها label وstartGreg وendGreg
+      const score = (s.label ? 1 : 0) + (s.startGreg ? 1 : 0) + (s.endGreg ? 1 : 0);
+      const existing = seen.get(idStr);
+      if (!existing || score > existing.score) {
+        seen.set(idStr, { sem: s, score });
+      }
+    }
+    CONFIG.semesters = Array.from(seen.values()).map(v => v.sem)
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)));
+
+    const after = CONFIG.semesters.length;
+    const removed = before - after;
+    localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
+    this.buildFilterUI();
+    this.renderAdmin();
+    const ok = await this._saveConfigToSheet();
+    this.showToast(`✅ تم التنظيف: حُذف ${removed} عنصر تالف/مكرَّر${ok ? ' وحُفظت في الشيت' : ' (محلياً فقط)'}`);
+  }
+
+  /** إعادة الفصول للقيم الافتراضية المضمَّنة في config.js (مع نسخة احتياطية) */
+  async _resetSemestersToDefault() {
+    const ok = confirm(
+      '⚠️ إعادة الفصول للافتراضي ستستبدل القائمة الحالية بالقيم الأصلية من config.js.\n\n' +
+      'سنحفظ نسخة احتياطية يمكن استعادتها يدوياً من DevTools إن لزم.\n\n' +
+      'هل تريد المتابعة؟'
+    );
+    if (!ok) return;
+
+    localStorage.setItem('baraa_semesters_backup', localStorage.getItem('baraa_semesters') || '[]');
+    localStorage.setItem('baraa_semesters_backup_date', new Date().toISOString());
+    localStorage.removeItem('baraa_semesters');
+    this.showToast('سيُعاد تحميل الصفحة بالقيم الافتراضية...');
+    setTimeout(() => location.reload(), 800);
+  }
+
   async _removeSemester(semId) {
     if (!confirm(`حذف الفصل "${semId}"؟ هذا لن يحذف البيانات المرتبطة به.`)) return;
-    CONFIG.semesters = CONFIG.semesters.filter(s => s.id !== semId);
+    CONFIG.semesters = CONFIG.semesters.filter(s => String(s.id) !== String(semId));
     localStorage.setItem('baraa_semesters', JSON.stringify(CONFIG.semesters));
     this.buildFilterUI();
     this.renderAdmin();
